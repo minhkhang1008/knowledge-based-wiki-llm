@@ -3,10 +3,10 @@ import httpx
 import asyncio
 from ollama import AsyncClient
 
+client = AsyncClient()
+
 #Cấu hình OLLAMA Client
 async def chat():
-      client = AsyncClient()
-      
       try:
             await client.list()
       except:
@@ -43,8 +43,7 @@ async def generate_chat(prompt: str):
                       
 
 async def main():
-      chat()
-
+      await chat()
 
 if __name__ == "__main__":
       asyncio.run(main())
