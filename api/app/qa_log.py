@@ -19,10 +19,9 @@ maker = Sessionmaker()
 async def build_database():
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all) 
-async def count_questions() -> int:
-    return await maker.scalar(select(func.count()).select_from(QALog)) or 0
-async def add_informations( _statement: str, _respond: str, _source: list[dict]):
-    temporary = QALog(Question_id = await count_questions(), statement=_statement, respond=_respond, source=_source)
+
+async def add_informations(id: int, _statement: str, _respond: str, _source: list[dict]):
+    temporary = QALog(Question_id = id, statement=_statement, respond=_respond, source=_source)
     maker.add(temporary)
     await maker.commit()
 if __name__ == "__main__" : 
