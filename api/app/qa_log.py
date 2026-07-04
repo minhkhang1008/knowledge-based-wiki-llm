@@ -1,10 +1,12 @@
 from asyncio import run
 from pathlib import Path
-from sqlalchemy import Column, Integer, String, JSON, DateTime, func, select
+from sqlalchemy import Column, Integer, String, JSON, DateTime
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.ext.asyncio import create_async_engine,async_sessionmaker
-databaseURL = Path(__file__).with_name("database.db").resolve()
-engine = create_async_engine(f"sqlite+aiosqlite:///{databaseURL}")
+import os
+baseURL = f"sqlite+aiosqlite:///{Path(__file__).with_name("database.db").resolve()}"
+URLused = os.getenv("DATABASE_URL",baseURL)
+engine = create_async_engine(URLused)
 Base = declarative_base()
 class QALog(Base):
     __tablename__ = "qa_logs"
@@ -13,15 +15,14 @@ class QALog(Base):
     answer = Column(String)
     created_at = Column(DateTime)
     source = Column(JSON)
-Sessionmaker = async_sessionmaker(bind=engine)
-maker = Sessionmaker()
 async def build_database():
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all) 
-
+Sessionmaker = async_sessionmaker(bind=engine)
 async def add_informations(_id: int, _question: str, _answer: str, _source: list[dict]):
-    temporary = QALog(id = _id, question=_question, answer=_answer, source =_source)
-    maker.add(temporary)
-    await maker.commit()
+    async with Sessionmaker() as smaker:
+        temporary = QALog(id = _id, question=_question, answer=_answer, source =_source)
+        smaker.add(temporary)
+        await smaker.commit()
 if __name__ == "__main__" : 
    run(build_database())
