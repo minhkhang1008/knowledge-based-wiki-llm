@@ -9,19 +9,26 @@ client = AsyncClient()
 async def chat():
       try:
             await client.list()
-      except:
+      except Exception as e:
             print("Haven't opened OLLAMA yet!!!") 
-
+            return False 
+      
 # Hàm Embedding (Biến chữ thành số)
 async def generate_embedding(text: str):
       try:
-            response = await AsyncClient().embeddings(model="nomic-embed-text", prompt=text)
+            response = await client.embeddings(model = "nomic-embed-text", prompt = text)
 
             return response['embedding']
       except ollama.ResponseError as e:
             print('Error:', e.error)
+
             if (e.status_code == 404):
-                  await AsyncClient().pull(model="nomic-embed-text")
+                  await client.pull(model="nomic-embed-text")
+                  response = await client.embeddings(model = "nomic-embed-text", prompt = text)
+
+                  return response['embedding']
+
+      return None
 
 # Hàm Chat (Sinh câu trả lời)
 async def generate_chat(prompt: str):
@@ -30,20 +37,23 @@ async def generate_chat(prompt: str):
             'content' : prompt
       }]
       try:
-            response = await AsyncClient().chat(model = "llama3.2:1b", messages = message, temperature = 0.1)
+            response = await client.chat(model = "llama3.2:1b", messages = message, options = {'temperature': 0.1})
 
             return response['message']['content'] 
       except ollama.ResponseError as e:
                   print('Error:', e.error)
                   if (e.status_code == 404):
-                        await AsyncClient().pull(model = "llama3.2:1b")  
-                        response = await AsyncClient().chat(model = "llama3.2:1b", messages = message, temperature = 0.1)
+                        await client.pull(model = "llama3.2:1b")  
+                        response = await client.chat(model = "llama3.2:1b", messages = message, options = {'temperature': 0.1})
                         
                         return response['message']['content'] 
+                  
+      return None
                       
 
 async def main():
-      await chat()
+      if (await chat() == False):
+            return 
 
 if __name__ == "__main__":
       asyncio.run(main())
