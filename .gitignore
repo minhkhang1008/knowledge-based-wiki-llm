@@ -1,0 +1,17 @@
+.venv/
+venv/
+ENV/
+env/
+.env
+.vscode/
+chroma_db/
+./chroma_db/
+*.db
+*.sqlite3
+__pycache__/
+*.pycz
+*.pyo
+*.pyd
+.Python
+.DS_Store
+Thumbs.db
