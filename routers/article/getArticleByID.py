@@ -3,7 +3,7 @@ from fastapi import APIRouter
 router = APIRouter()
     
 @router.get("/api/articles/{id}")
-def getArticleByID(getID: id):
+def getArticleByID(id : str):
     success = True
     data = {
         "id" : "test",

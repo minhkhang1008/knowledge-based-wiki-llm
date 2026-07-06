@@ -210,13 +210,14 @@ Ghi chú cho Pydantic Schema: `question` bắt buộc phải là String, không 
 Định dạng: `Không có (None)`
 
 ###  Dữ liệu trả về khi thành công (Response - 200 OK)
-```json
+~~~json
 {
   "success": true,
   "data": {
     "total_articles": 142,
-    "total_ai_queries": 3420,
+    "total_ai_queries": 3420
   },
-  "message": "Lấy dữ liệu thống kê thành công."
+  "message": "Lấy dữ liệu thống kê thành công.",
+  "error" : null
 }
-```
+~~~
