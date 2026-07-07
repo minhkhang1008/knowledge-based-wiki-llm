@@ -1,9 +1,9 @@
 from asyncio import run
 from pathlib import Path
-from sqlalchemy import Column, Integer, String, JSON, DateTime,func,select
+from sqlalchemy import Column, Integer, String, JSON, DateTime
 from datetime import datetime
 from sqlalchemy.orm import declarative_base
-from sqlalchemy.ext.asyncio import create_async_engine,async_sessionmaker, AsyncSession
+from sqlalchemy.ext.asyncio import create_async_engine,async_sessionmaker
 import os
 baseURL = f"sqlite+aiosqlite:///{Path(__file__).with_name("database.db").resolve()}"
 URLused = os.getenv("DATABASE_URL",baseURL)
