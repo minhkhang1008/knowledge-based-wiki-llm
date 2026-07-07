@@ -15,3 +15,5 @@ __pycache__/
 .Python
 .DS_Store
 Thumbs.db
+*.pyc
+chroma_db/
