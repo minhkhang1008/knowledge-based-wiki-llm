@@ -1,6 +1,7 @@
 from asyncio import run
 from pathlib import Path
 from sqlalchemy import Column, Integer, String, JSON, DateTime
+from datetime import datetime
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.ext.asyncio import create_async_engine,async_sessionmaker
 import os
@@ -13,15 +14,15 @@ class QALog(Base):
     id = Column(Integer, primary_key=True)
     question= Column(String)
     answer = Column(String)
-    created_at = Column(DateTime)
+    created_at = Column(DateTime, default= datetime.now)
     source = Column(JSON)
 async def build_database():
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all) 
 Sessionmaker = async_sessionmaker(bind=engine)
-async def add_informations(_id: int, _question: str, _answer: str, _source: list[dict]):
+async def log_qa_interaction(_question: str, _answer: str, _source: list[dict]):
     async with Sessionmaker() as smaker:
-        temporary = QALog(id = _id, question=_question, answer=_answer, source =_source)
+        temporary = QALog(question=_question, answer=_answer, source =_source)
         smaker.add(temporary)
         await smaker.commit()
 if __name__ == "__main__" : 
