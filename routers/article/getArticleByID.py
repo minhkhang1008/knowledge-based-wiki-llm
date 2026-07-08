@@ -9,7 +9,6 @@ def getArticleByID(id : str):
         "id" : "test",
         "title" : "test",
         "content" : "test",
-        "category_id" : "test",
         "document_id" : "test",
         "updated_at" : "test",
     }

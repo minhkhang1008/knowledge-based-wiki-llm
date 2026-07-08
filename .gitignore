@@ -5,3 +5,8 @@ __pycache__/
 .env
 *.db
 chroma_db/
+.python-version
+pyproject.toml
+README.md
+requirements.txt
+uv.lock

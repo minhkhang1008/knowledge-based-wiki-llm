@@ -9,12 +9,16 @@ def askQuestion(question: AskRequest):
     data_response = AskResponse(
         answer = "Đây là câu trả lời test tự động",
         sources = [
-            {"test" : "test"}
+            {
+                "id" : "wiki_05",
+                "title" : "Quy chế nhân sự 2025",
+                "url" : "/articles/wiki_05"
+            }
         ]
     )
     return {
         "success" : True,
         "data" : data_response,
-        "message" : "chạy thành công",
+        "message" : "Xử lý câu hỏi RAG thành công.",
         "error" : None
     }

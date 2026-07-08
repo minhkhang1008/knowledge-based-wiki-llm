@@ -11,7 +11,7 @@
 ### 1.1. API Lấy Danh Sách Bài Viết
 * **Địa chỉ (URL):** `/api/articles`
 * **Phương thức (Method):** `GET`
-* **Chức năng:** Lấy danh sách các bài viết wiki trong hệ thống. Hỗ trợ các tham số lọc theo danh mục hoặc tìm kiếm theo từ khóa.
+* **Chức năng:** Lấy danh sách các bài viết wiki trong hệ thống. Hỗ trợ tìm kiếm theo từ khóa.
 
 ### Dữ liệu gửi lên (Query Parameters)
 Định dạng: `URL Parameters`
@@ -26,7 +26,7 @@ Ghi chú: `search` và `category` là không bắt buộc (Optional). Nếu đ�
     {
       "id": "wiki_01",
       "title": "Hướng dẫn Docker cơ bản",
-      "category": "devops",
+      "category": "devops"
     }
   ],
   "message": "Lấy danh sách bài viết thành công."
@@ -54,7 +54,7 @@ Ghi chú cho Pydantic Schema: ID truyền vào bắt buộc phải đúng địn
     "title": "Hướng dẫn Docker cơ bản",
     "content": "# Docker là gì?\nDocker là một nền tảng...",
     "category": "devops",
-    "author": "Nguyen Van A",
+    "author": "Nguyen Van A"
   },
   "message": "Lấy chi tiết bài viết thành công."
 }
@@ -90,6 +90,7 @@ Ghi chú cho Pydantic Schema: `title` bắt buộc từ 5 ký tự trở lên. `
     "category": "ai",
   },
   "message": "Tạo bài viết mới thành công."
+  "error" : null
 }
 ```
 
@@ -134,7 +135,7 @@ Ghi chú cho Pydantic Schema: Các trường hợp gửi lên trong body sẽ đ
 * **Phương thức (Method):** `POST`
 * **Chức năng:** Thực hiện tìm kiếm kết hợp cả từ khóa (Keyword) và ngữ nghĩa (Semantic) trong kho dữ liệu wiki.
 
-### ### Dữ liệu gửi lên (Request Body)
+### Dữ liệu gửi lên (Request Body)
 Định dạng: `application/json`
 
 ```json
