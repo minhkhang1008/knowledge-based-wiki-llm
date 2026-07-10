@@ -17,3 +17,4 @@ __pycache__/
 Thumbs.db
 *.pyc
 chroma_db/
+database.db
