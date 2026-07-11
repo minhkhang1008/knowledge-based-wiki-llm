@@ -1,21 +1,31 @@
 from fastapi import APIRouter
 from schema.AskRequestSchema import AskRequest
-from schema.AskResponseSchema import AskResponse
+from schema.AskResponseSchema import AskResponse, AskSource
+
+
+from api.app.core.ollama_client import generate_chat, generate_embedding
+from api.app.services.services_vector_db import search_similar_chunks
+from api.app.services.prompt_builder import build_rag_prompt
+
+from api.app.models.qa_log import log_qa_interaction
 
 router = APIRouter()
 
 @router.post("/api/qa/ask")
-def askQuestion(question: AskRequest):
-    data_response = AskResponse(
-        answer = "Đây là câu trả lời test tự động",
-        sources = [
-            {
-                "id" : "wiki_05",
-                "title" : "Quy chế nhân sự 2025",
-                "url" : "/articles/wiki_05"
-            }
-        ]
-    )
+async def askQuestion(question: AskRequest):
+
+    question_vector = await generate_embedding(question.question)
+    chunks = search_similar_chunks(question_vector, top_k=5)
+    prompt = build_rag_prompt(question.question, chunks)
+    ai_response = await generate_chat(prompt)   
+
+    data_response = [
+        AskResponse(
+            answer = ai_response
+        ),
+        chunks
+    ]
+    # await log_qa_interaction(_question=question.question, _answer=ai_response, _source=chunks)
     return {
         "success" : True,
         "data" : data_response,
