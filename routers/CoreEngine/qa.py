@@ -25,7 +25,7 @@ async def askQuestion(question: AskRequest):
         ),
         chunks
     ]
-    # await log_qa_interaction(_question=question.question, _answer=ai_response, _source=chunks)
+    await log_qa_interaction(_question=question.question, _answer=ai_response, _source=chunks)
     return {
         "success" : True,
         "data" : data_response,
