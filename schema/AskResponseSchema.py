@@ -1,9 +1,12 @@
 from pydantic import BaseModel
+from typing import Optional
 
-class AskSource(BaseModel):
-    id : str
-    title : str
-    url : str
+class dataResponse(BaseModel):
+    answer : str
+    sources : list[str]
 
 class AskResponse(BaseModel):
-    answer : str
+    success : bool
+    data : dataResponse
+    message : str
+    error : Optional[str] = None

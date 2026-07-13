@@ -1,7 +1,6 @@
 from fastapi import APIRouter
 from schema.AskRequestSchema import AskRequest
-from schema.AskResponseSchema import AskResponse, AskSource
-
+from schema.AskResponseSchema import AskResponse
 
 from api.app.core.ollama_client import generate_chat, generate_embedding
 from api.app.services.services_vector_db import search_similar_chunks
@@ -19,16 +18,14 @@ async def askQuestion(question: AskRequest):
     prompt = build_rag_prompt(question.question, chunks)
     ai_response = await generate_chat(prompt)   
 
-    data_response = [
-        AskResponse(
-            answer = ai_response
-        ),
-        chunks
-    ]
-    await log_qa_interaction(_question=question.question, _answer=ai_response, _source=chunks)
-    return {
-        "success" : True,
-        "data" : data_response,
-        "message" : "Xử lý câu hỏi RAG thành công.",
-        "error" : None
+    data_response = {
+        "answer" : ai_response,
+        "sources" : chunks
     }
+    await log_qa_interaction(question=question.question, answer=ai_response, sources=chunks)
+    return AskResponse(
+        success = True,
+        data = data_response,
+        message = "Xử lí câu hỏi RAG thành công",
+        error = None
+    )

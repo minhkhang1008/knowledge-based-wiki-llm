@@ -4,7 +4,7 @@ from api.app.models.article import get_all_articles
 
 router = APIRouter()
 
-@router.get("/api/article")
+@router.get("/api/articles")
 async def list_article(skip: int = 0, limit: int = 20, search: Optional[str] = None):
     results = await get_all_articles(skip, limit, search)
     return {
