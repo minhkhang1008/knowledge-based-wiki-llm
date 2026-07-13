@@ -1,3 +1,9 @@
+__pycache__
+.venv/
+__pycache__/
+*.pyc
+.env
+*.db
 .venv/
 venv/
 ENV/
@@ -17,4 +23,3 @@ __pycache__/
 Thumbs.db
 *.pyc
 chroma_db/
-database.db
