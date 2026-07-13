@@ -40,7 +40,7 @@ def search_similar_chunks(query_embedding: list[float], top_k: int = 5) -> list[
     # Lấy thêm danh sách distances (khoảng cách ngữ nghĩa) do ChromaDB trả về
     distances = results["distances"][0] if results.get("distances") else []
     # 3.3: Bóc tách dữ liệu (Parsing Data) an toàn
-    for doc,meta,distance in zip(documents, metadatas):
+    for doc,meta,distance in zip(documents, metadatas,distances):
 
         # KIỂM TRA THRESHOLD: Nếu khoảng cách vượt quá 0.7, bỏ qua đoạn văn này
         if distance > THRESHOLD:
