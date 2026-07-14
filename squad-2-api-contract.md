@@ -29,7 +29,8 @@ Ghi chú: `search` và `category` là không bắt buộc (Optional). Nếu đ�
       "category": "devops"
     }
   ],
-  "message": "Lấy danh sách bài viết thành công."
+  "message": "Lấy danh sách bài viết thành công.",
+  "error" : null
 }
 ```
 
@@ -56,7 +57,8 @@ Ghi chú cho Pydantic Schema: ID truyền vào bắt buộc phải đúng địn
     "category": "devops",
     "author": "Nguyen Van A"
   },
-  "message": "Lấy chi tiết bài viết thành công."
+  "message": "Lấy chi tiết bài viết thành công.",
+  "error" : null
 }
 ```
 
@@ -89,7 +91,7 @@ Ghi chú cho Pydantic Schema: `title` bắt buộc từ 5 ký tự trở lên. `
     "title": "Tổng quan về RAG",
     "category": "ai",
   },
-  "message": "Tạo bài viết mới thành công."
+  "message": "Tạo bài viết mới thành công.",
   "error" : null
 }
 ```
