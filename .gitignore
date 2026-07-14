@@ -24,6 +24,5 @@ Thumbs.db
 
 pyproject.toml
 README.md
-requirements.txt
 uv.lock
 main.py
