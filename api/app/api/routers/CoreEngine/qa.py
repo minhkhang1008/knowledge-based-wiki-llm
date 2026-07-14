@@ -1,12 +1,12 @@
 from fastapi import APIRouter
-from schema.AskRequestSchema import AskRequest
-from schema.AskResponseSchema import AskResponse
+from app.schemas.AskRequestSchema import AskRequest
+from app.schemas.AskResponseSchema import AskResponse
 
-from api.app.core.ollama_client import generate_chat, generate_embedding
-from api.app.services.services_vector_db import search_similar_chunks
-from api.app.services.prompt_builder import build_rag_prompt
+from app.core.ollama_client import generate_chat, generate_embedding
+from app.services.services_vector_db import search_similar_chunks
+from app.services.prompt_builder import build_rag_prompt
 
-from api.app.models.qa_log import log_qa_interaction
+from app.models.qa_log import log_qa_interaction
 
 router = APIRouter()
 

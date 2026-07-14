@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException
-from api.app.models.article import get_article_by_id
+from app.models.article import get_article_by_id
 
 router = APIRouter()
     

@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 from typing import Optional
-from api.app.models.article import get_all_articles
+from app.models.article import get_all_articles
 
 router = APIRouter()
 
