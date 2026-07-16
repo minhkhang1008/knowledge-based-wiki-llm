@@ -1,10 +1,13 @@
 import os
+from pathlib import Path
 from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 from datetime import datetime
+
 from app.services.document_parser.table_extractor import PptxTableExtractor
 from app.services.document_parser.image_extractor import PptxImageExtractor
 from app.services.document_parser.spatial_analyzer import PptxSpatialAnalyzer
+from app.services.document_parser.converter_registry import register
 
 class PptxCoreParser:
     def __init__(self, file_path: str, images_output_dir: str = None):
@@ -64,5 +67,13 @@ class PptxCoreParser:
                     markdown_output += "\n"
                     
             markdown_output += "---\n\n"
-            
+
         return markdown_output
+
+@register(".pptx")
+def pptx_to_markdown(file_path: str | Path, output_dir: str) -> str:
+    images_dir = os.path.join(output_dir, "images")
+    parser = PptxCoreParser(str(file_path), images_output_dir=images_dir)
+    
+    # BẮT BUỘC PHẢI CÓ CHỮ 'return' Ở ĐÂY
+    return parser.parse()
