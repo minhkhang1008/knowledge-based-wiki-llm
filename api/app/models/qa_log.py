@@ -5,7 +5,7 @@ from datetime import datetime
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.ext.asyncio import create_async_engine,async_sessionmaker
 import os
-baseURL = f"sqlite+aiosqlite:///{Path(__file__).with_name("database.db").resolve()}"
+baseURL = f"sqlite+aiosqlite:///{Path(__file__).with_name('database.db').resolve()}"
 URLused = os.getenv("DATABASE_URL",baseURL)
 engine = create_async_engine(URLused)
 Base = declarative_base()
@@ -20,9 +20,9 @@ async def build_database():
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all) 
 Sessionmaker = async_sessionmaker(bind=engine)
-async def log_qa_interaction(_question: str, _answer: str, _source: list[dict]):
+async def log_qa_interaction(question: str, answer: str, source: list[dict]):
     async with Sessionmaker() as smaker:
-        temporary = QALog(question=_question, answer=_answer, source =_source)
+        temporary = QALog(question=question, answer=answer, source =source)
         smaker.add(temporary)
         await smaker.commit()
 if __name__ == "__main__" : 
