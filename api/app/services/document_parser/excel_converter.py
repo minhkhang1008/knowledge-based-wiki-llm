@@ -1,7 +1,7 @@
 from pathlib import Path
 from xml.etree import ElementTree
 from zipfile import ZipFile
-from .converter_registry import register
+from app.services.document_parser.converter_registry import register
 
 
 NS = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
@@ -124,8 +124,7 @@ def _rows_to_markdown(rows: list[list[str]]) -> str:
 
 @register(".xlsx")
 @register(".xlsm")
-def excel_to_markdown(file_path: str | Path) -> str:
-    """Chuyển file Excel (.xlsx, .xlsm) sang Markdown, mỗi sheet thành một bảng."""
+def excel_to_markdown(file_path: str | Path, output_dir: str) -> str:
     print("Đang convert Excel:", file_path)
     path = Path(file_path)
     if path.suffix.lower() not in {".xlsx", ".xlsm"}:
