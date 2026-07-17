@@ -117,3 +117,4 @@ wcwidth==0.8.2
 xlsxwriter==3.2.9
 yarl==1.24.2
 mammoth>=1.6.0
+chromadb
