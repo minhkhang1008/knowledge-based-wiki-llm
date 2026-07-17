@@ -1,38 +1,45 @@
+# Python
 __pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Virtual environments
 .venv/
 venv/
 ENV/
 env/
 
-*.pyc
-*.pycz
-*.pyo
-*.pyd
-.Python
-
+# Environment variables (chứa secrets - không push)
 .env
 .python-version
 
+# Database
 *.db
 *.sqlite3
 chroma_db/
 
+# IDE
 .vscode/
 
+# OS
 .DS_Store
 Thumbs.db
-*.pyc
-chroma_db/
-__pycache__/
-.python-version
+
+# Build/lock files
 pyproject.toml
-README.md
-requirements.txt
 uv.lock
 
-pyproject.toml
-README.md
-uv.lock
-main.py
+# Output/test files
+*.md
+!README.md
 
-api/tests
+# Test data PDFs (tuỳ chọn - uncomment nếu muốn exclude)
+# *.pdf
+# *.PDF
+
+# Uploaded/extracted files
+api/uploads/
+api/images/
+api/storage/
