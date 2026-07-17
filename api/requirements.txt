@@ -63,7 +63,7 @@ opencv-python-headless==5.0.0.93
 opt-einsum==3.3.0
 packaging==26.2
 pandas==3.0.3
-pillow==10.2.0
+pillow==10.4.0
 pluggy==1.6.0
 prefetch-generator==1.0.1
 prettytable==3.18.0
@@ -117,3 +117,4 @@ wcwidth==0.8.2
 xlsxwriter==3.2.9
 yarl==1.24.2
 mammoth>=1.6.0
+pdfplumber>=0.10.0
