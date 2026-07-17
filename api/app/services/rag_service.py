@@ -3,8 +3,12 @@ from app.services.services_vector_db import search_similar_chunks
 from app.services.prompt_builder import build_rag_prompt
 import asyncio
 
-async def execute_llm_generation(prompt: str, raw_chunks: list[dict]):
-      raw_answer = await generate_chat(prompt)
+async def process_rag_pipeline(question: str) -> dict:
+    return {
+        "answer": f"Đây là câu trả lời giả lập cho câu hỏi: '{question}'. Chờ Phú Thịnh hoàn thiện logic.",
+        "sources": [],
+        "no_answer_reason": None
+    }
 
       if ("Tôi không tìm thấy thông tin này" in raw_answer):
             return {"answer": raw_answer, "sources": [], "no_answer_reason": "out_of_scope"}

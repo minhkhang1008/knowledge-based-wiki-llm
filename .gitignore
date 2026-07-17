@@ -21,8 +21,18 @@ chroma_db/
 
 .DS_Store
 Thumbs.db
+*.pyc
+chroma_db/
+__pycache__/
+.python-version
+pyproject.toml
+README.md
+requirements.txt
+uv.lock
 
 pyproject.toml
 README.md
 uv.lock
 main.py
+
+api/tests
