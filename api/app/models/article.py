@@ -1,5 +1,5 @@
 from datetime import datetime
-from core.database import Base, get_db
+from app.core.database import Base, get_db
 from sqlalchemy import Column,String,DateTime,select
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
@@ -10,13 +10,13 @@ class Article(Base):
     title = Column(String, nullable=False)
     content = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.now)
-async def get_all_articles(skip: int, limit: int, search: Optional[str] = None, smaker : AsyncSession = Depends(get_db)):
+async def get_all_articles(session: AsyncSession,skip: int, limit: int, search: Optional[str] = None):
     stmt = select(Article).offset(skip).limit(limit)
     if search:
         stmt = stmt.where(Article.title.like(f"%{search}%"))
-    result = await smaker.execute(stmt)
+    result = await session.execute(stmt)
     return result.scalars().all()
-async def get_article_by_id(article_id: str, smaker : AsyncSession = Depends(get_db)):
+async def get_article_by_id(session: AsyncSession, article_id: str):
     stmt = select(Article).where(Article.id == article_id)
-    result = await smaker.execute(stmt)
+    result = await session.execute(stmt)
     return  result.scalar_one_or_none()
