@@ -7,7 +7,7 @@ async def execute_llm_generation(prompt: str, raw_chunks: list[dict]):
 
       if ("Tôi không tìm thấy" in raw_answer or "không có thông tin" in raw_answer):
             return {
-                  "answer": raw_answer, 
+                  "answer": "Tôi không tìm thấy thông tin này trong tài liệu.", 
                   "sources": [], 
                   "no_answer_reason": "out_of_scope"
             }
@@ -23,7 +23,7 @@ async def process_rag_pipeline(question: str):
       document = search_similar_chunks(embedded_text, top_k = 5)
       if not document:
             return {
-                  "answer": "Tôi không tìm thấy thông tin này trong tài liệu",
+                  "answer": "Tôi không tìm thấy thông tin này trong tài liệu.",
                   "sources": [],
                   "no_answer_reason": "out_of_scope"
             }
