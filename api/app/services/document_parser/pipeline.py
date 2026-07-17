@@ -1,8 +1,13 @@
 import os
 import hashlib
 import subprocess
-from concurrent.futures import ProcessPoolExecutor, TimeoutError
-from app.services.document_parser.pptx_core import PptxCoreParser
+from pathlib import Path
+from concurrent.futures import ProcessPoolExecutor
+
+from app.services.document_parser.converter_registry import get_converter
+import app.services.document_parser.docx_converter
+import app.services.document_parser.excel_converter
+import app.services.document_parser.pptx_core
 
 class DocumentParserPipeline:
     def __init__(self, output_base_dir: str = "storage/extracted_data"):
@@ -11,7 +16,6 @@ class DocumentParserPipeline:
 
     @staticmethod
     def calculate_sha256(file_path: str) -> str:
-        """Tính chữ ký số SHA-256 của file để làm Hashing Registry."""
         sha256_hash = hashlib.sha256()
         with open(file_path, "rb") as f:
             for byte_block in iter(lambda: f.read(4096), b""):
@@ -19,48 +23,59 @@ class DocumentParserPipeline:
         return sha256_hash.hexdigest()
 
     @staticmethod
-    def convert_ppt_to_pptx(file_path: str) -> str:
-        """Gọi unoserver daemon để chuẩn hóa file .ppt cũ sang .pptx."""
-        if file_path.endswith(".pptx"):
+    def convert_legacy_formats(file_path: str) -> str:
+        """Hỗ trợ LibreOffice Headless cho .ppt, .doc, .xls sang định dạng hiện đại."""
+        path_obj = Path(file_path)
+        ext = path_obj.suffix.lower()
+        
+        legacy_mapping = {
+            ".ppt": "pptx",
+            ".doc": "docx",
+            ".xls": "xlsx"
+        }
+        
+        if ext not in legacy_mapping:
             return file_path
             
-        if file_path.endswith(".ppt"):
-            new_path = file_path + "x"
-            # Gọi unoserver client thông qua CLI
-            cmd = ["unoserver-Client", file_path, new_path]
-            try:
-                subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                return new_path
-            except subprocess.CalledProcessError as e:
-                raise RuntimeError(f"Lỗi khi convert qua unoserver: {e.stderr.decode()}")
+        new_ext = legacy_mapping[ext]
+        new_path = str(path_obj.with_suffix(f".{new_ext}"))
         
-        raise ValueError("Định dạng file không được hỗ trợ.")
+        cmd = [
+            "libreoffice", 
+            "--headless", 
+            "--convert-to", new_ext, 
+            file_path, 
+            "--outdir", str(path_obj.parent)
+        ]
+        
+        try:
+            subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            return new_path
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(f"Lỗi khi convert qua LibreOffice: {e.stderr.decode()}")
+        except FileNotFoundError:
+            raise RuntimeError("Hệ thống không tìm thấy 'libreoffice'. Vui lòng đảm bảo đã cài đặt LibreOffice trên máy.")
 
     @staticmethod
     def _worker_process(file_path: str, output_dir: str) -> str:
-        """Hàm độc lập chạy bên trong từng Worker Process biệt lập."""
-        # 1. Khử định dạng cũ nếu có
-        target_path = DocumentParserPipeline.convert_ppt_to_pptx(file_path)
+        target_path = DocumentParserPipeline.convert_legacy_formats(file_path)
+        source_path = Path(target_path)
         
-        # 2. Định nghĩa thư mục lưu ảnh riêng cho file này
-        images_dir = os.path.join(output_dir, "images")
+        converter = get_converter(source_path.suffix)
+        if not converter:
+            raise ValueError(f"Hệ thống chưa hỗ trợ định dạng: {source_path.suffix}")
+
+        markdown_text = converter(source_path, output_dir)
         
-        # 3. Tiến hành parse DOM và giải thuật hình học
-        parser = PptxCoreParser(target_path, images_output_dir=images_dir)
-        markdown_text = parser.parse()
-        
-        # Nếu là file tạm tạo ra từ .ppt, tiến hành dọn dẹp
         if target_path != file_path and os.path.exists(target_path):
             os.remove(target_path)
             
         return markdown_text
 
     def process_file(self, file_path: str) -> str:
-        """Bao bọc tiến trình bằng Executor để xử lý độc lập không giới hạn thời gian."""
         file_hash = self.calculate_sha256(file_path)
         unique_output_dir = os.path.join(self.output_base_dir, file_hash)
         
-        # Khởi chạy tiến trình công nhân biệt lập
         with ProcessPoolExecutor(max_workers=1) as executor:
             future = executor.submit(self._worker_process, file_path, unique_output_dir)
             try:
