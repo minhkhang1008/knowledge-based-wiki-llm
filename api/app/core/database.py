@@ -12,4 +12,4 @@ async def get_db():
         try:
             yield session
         finally:
-            await smaker.close()
+            await session.close()
