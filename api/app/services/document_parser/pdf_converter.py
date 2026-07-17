@@ -5,6 +5,10 @@ from enum import Enum
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional, TypeVar
+from collections import Counter, defaultdict
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+from PIL import Image
 from app.services.document_parser.converter_registry import register
 
 logging.basicConfig(
@@ -16,7 +20,6 @@ logger = logging.getLogger("pdf_converter")
 
 T = TypeVar("T")
 
-
 class BlockType(Enum):
     HEADER_1 = "h1"
     HEADER_2 = "h2"
@@ -24,7 +27,6 @@ class BlockType(Enum):
     LIST_ITEM = "list_item"
     TABLE = "table"
     IMAGE = "image"
-
 
 @dataclass
 class BoundingBox:
@@ -44,14 +46,12 @@ class BoundingBox:
     def contains_point(self, x: float, y: float) -> bool:
         return self.x1 <= x <= self.x2 and self.y1 <= y <= self.y2
 
-
 @dataclass
 class DocumentBlock:
     block_type: BlockType
     bbox: BoundingBox
     content: str
     confidence: float = 1.0
-
 
 @dataclass
 class TextLine:
@@ -60,26 +60,237 @@ class TextLine:
     font_size: float
     words: List[dict]
 
+class MuPDFTextExtractor:
+    """
+    Dùng pymupdf (fitz) để extract text với unicode mapping tốt hơn pdfplumber.
+    pymupdf xử lý đúng °C, kΩ, µF, –, ≈ mà không cần regex cleanup thủ công.
+    Được dùng làm primary text engine, pdfplumber giữ vai trò detect table/image.
+    """
 
-class DocumentLayoutSorter:
-    """
-    Giữ lại lớp cấu trúc Sorter để đảm bảo tính tương thích ngược với hệ thống Core,
-    tuy nhiên quá trình phân bổ thứ tự đọc đã được xử lý triệt để ngay từ bước phân đoạn dải ngang.
-    """
-    def sort_blocks(self, blocks: List[DocumentBlock]) -> List[DocumentBlock]:
+    @staticmethod
+    def available() -> bool:
+        try:
+            import fitz  # noqa
+            return True
+        except ImportError:
+            return False
+
+    @staticmethod
+    def get_page_blocks(fitz_page) -> List[dict]:
+        """
+        Trả về list blocks từ pymupdf với format chuẩn hóa:
+        {"text": str, "y0": float, "y1": float, "x0": float, "x1": float,
+         "font_size": float, "bold": bool}
+        """
+        blocks = []
+        raw_blocks = fitz_page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)["blocks"]
+        for b in raw_blocks:
+            if b.get("type") != 0:  # 0 = text block
+                continue
+            for line in b.get("lines", []):
+                line_text = ""
+                max_size = 0.0
+                is_bold = False
+                for span in line.get("spans", []):
+                    line_text += span.get("text", "")
+                    size = float(span.get("size", 0))
+                    if size > max_size:
+                        max_size = size
+                    flags = span.get("flags", 0)
+                    if flags & 16:  # bold flag
+                        is_bold = True
+                line_text = line_text.strip()
+                if not line_text:
+                    continue
+                bbox = line.get("bbox", (0, 0, 0, 0))
+                blocks.append({
+                    "text": line_text,
+                    "x0": bbox[0], "y0": bbox[1],
+                    "x1": bbox[2], "y1": bbox[3],
+                    "font_size": max_size,
+                    "bold": is_bold,
+                })
         return blocks
 
+    @staticmethod
+    def compute_font_stats_from_doc(fitz_doc, max_pages: int = 15) -> dict:
+        """Tính most_used_font_size và max_font_size từ pymupdf document."""
+        size_counter: Counter = Counter()
+        max_size = 0.0
+        for page in list(fitz_doc)[:max_pages]:
+            for b in page.get_text("dict")["blocks"]:
+                if b.get("type") != 0:
+                    continue
+                for line in b.get("lines", []):
+                    for span in line.get("spans", []):
+                        size = float(span.get("size", 0))
+                        if size > 0:
+                            size_counter[round(size * 2) / 2] += 1
+                            if size > max_size:
+                                max_size = size
+        most_used = size_counter.most_common(1)[0][0] if size_counter else 10.0
+        return {"most_used": most_used, "max": max_size or most_used}
+
+
+
+
+class PDFTextCleaner:
+    # Map (cid:x) → ký tự Unicode tương ứng cho các font phổ biến
+    _CID_MAP = {
+        "1": "°", "2": "±", "3": "−", "4": "×", "5": "µ",
+        "6": "·", "7": "→", "8": "←", "9": "↑", "10": "↓",
+        "14": "•", "15": "·", "16": "™", "17": "©", "18": "®",
+        "25": "°", "30": "Ω", "32": "·",
+    }
+
+    @staticmethod
+    def clean(text: str) -> str:
+        """Làm sạch encoding artifact phổ biến trong cấu trúc nhị phân PDF."""
+        if not text:
+            return ""
+
+        # Thay thế (cid:x) theo map, còn lại xóa
+        def replace_cid(m):
+            return PDFTextCleaner._CID_MAP.get(m.group(1), "")
+        text = re.sub(r"\(cid:(\d+)\)", replace_cid, text)
+
+        # Ký hiệu bị encode sai phổ biến trong datasheet điện tử
+        text = re.sub(r"(?<!\w)kW(?!\w)", "kΩ", text)
+        text = re.sub(r"(?<!\w)MW(?!\w)", "MΩ", text)
+        text = re.sub(r"\b(\d+(?:\.\d+)?)\s*W\b", r"\1 Ω", text)
+        text = re.sub(r"\b(\d+(?:\.\d+)?)\s*m\s*F\b", r"\1 µF", text)
+        text = text.replace("»", "≈").replace("«", "≈")
+        # °C: chỉ convert khi C đứng sau số/dấu gạch ngang, không sau chữ cái
+        text = re.sub(r"(\d)\s+C\b(?!\w)", r"\1°C", text)     # 25 C → 25°C
+        text = re.sub(r"(–\d+)\s*C\b(?!\w)", r"\1°C", text)   # –55 C → –55°C
+        text = re.sub(r"\bC\b(?=\s*/\s*W)", "°C", text)        # C/W → °C/W
+
+        return text
+
+class FontStatsAnalyzer:
+    """Chuyên trách phân tích đặc trưng font toàn văn bản nhằm thiết lập bộ Heuristic."""
+    @staticmethod
+    def analyze(pdf, max_sample_pages: int = 15) -> dict:
+        size_counter: Counter = Counter()
+        font_counter: Counter = Counter()
+        bold_font_names = set()
+        max_font_size = 0.0
+        
+        sampled_pages = pdf.pages[:max_sample_pages]
+        for page in sampled_pages:
+            # Tối ưu: Lấy trực thuộc thuộc tính từ đối tượng thay vì quét sâu glyph phức tạp nếu không cần thiết
+            chars = page.chars
+            if not chars:
+                continue
+            for char in chars:
+                size = char.get("size")
+                fname = char.get("fontname", "")
+                if size and float(size) > 0:
+                    rounded = round(float(size) * 2) / 2
+                    size_counter[rounded] += 1
+                    font_counter[fname] += 1
+                    if float(size) > max_font_size:
+                        max_font_size = float(size)
+                    if "bold" in fname.lower() or fname.endswith("-Bold") or fname.endswith("Bold"):
+                        bold_font_names.add(fname)
+                        
+        most_used_size = size_counter.most_common(1)[0][0] if size_counter else 10.0
+        most_used_font = font_counter.most_common(1)[0][0] if font_counter else ""
+        if max_font_size == 0.0:
+            max_font_size = most_used_size
+            
+        return {
+            "most_used_font_size": most_used_size,
+            "most_used_font_name": most_used_font,
+            "max_font_size": max_font_size,
+            "bold_font_names": bold_font_names,
+        }
+
+class TableConverter:
+    """Chuyên trách chuyển đổi ma trận bảng dữ liệu thô sang định dạng Markdown chuẩn."""
+    @staticmethod
+    def to_markdown(raw_table: List[List[Optional[str]]]) -> str:
+        if not raw_table or not raw_table[0]:
+            return ""
+            
+        def clean_cell(cell: Optional[str]) -> str:
+            if cell is None:
+                return ""
+            return PDFTextCleaner.clean(str(cell).replace("\n", " ").replace("|", "\\|").strip())
+            
+        headers = [clean_cell(c) for c in raw_table[0]]
+        num_cols = len(headers)
+        lines = [
+            "| " + " | ".join(headers) + " |",
+            "| " + " | ".join(["---"] * num_cols) + " |",
+        ]
+        for row in raw_table[1:]:
+            cells = [clean_cell(c) for c in row]
+            if len(cells) < num_cols:
+                cells += [""] * (num_cols - len(cells))
+            lines.append("| " + " | ".join(cells[:num_cols]) + " |")
+        return "\n".join(lines)
+
+class TextLineGrouper:
+    """Tối ưu hóa thuật toán nhóm từ thành dòng sử dụng cơ chế Sweep-line đơn giản."""
+    @staticmethod
+    def group(words: List[dict], y_tolerance: float = 3.0) -> List[TextLine]:
+        if not words:
+            return []
+            
+        # Sắp xếp theo trục dọc trước
+        sorted_words = sorted(words, key=lambda w: float(w["top"]))
+        lines: List[List[dict]] = []
+        
+        for word in sorted_words:
+            top = float(word["top"])
+            bottom = float(word["bottom"])
+            
+            placed = False
+            # Kiểm tra nhanh dòng cuối cùng hiện tại xem có cùng nằm trên một dòng quét không
+            if lines:
+                last_line = lines[-1]
+                ref_word = last_line[0]
+                ref_top = float(ref_word["top"])
+                ref_bottom = float(ref_word["bottom"])
+                
+                # Tính độ giao thoa theo trục Y
+                overlap = max(0.0, min(bottom, ref_bottom) - max(top, ref_top))
+                min_h = min(bottom - top, ref_bottom - ref_top)
+                
+                if min_h > 0 and (overlap / min_h) > 0.5:
+                    last_line.append(word)
+                    placed = True
+            
+            if not placed:
+                lines.append([word])
+                
+        result: List[TextLine] = []
+        for lw in lines:
+            sw = sorted(lw, key=lambda w: w["x0"])
+            text = " ".join(str(w["text"]) for w in sw).strip()
+            if not text:
+                continue
+                
+            result.append(TextLine(
+                text=text,
+                bbox=BoundingBox(
+                    min(w["x0"] for w in sw), min(w["top"] for w in sw),
+                    max(w["x1"] for w in sw), max(w["bottom"] for w in sw),
+                ),
+                font_size=sum(float(w["bottom"]) - float(w["top"]) for w in sw) / len(sw),
+                words=sw,
+            ))
+        return result
 
 class MarkdownCompiler:
     @staticmethod
     def compile(blocks: List[DocumentBlock]) -> str:
         markdown_lines: List[str] = []
-        
         for block in blocks:
-            cleaned_content = block.content.strip()
+            cleaned_content = PDFTextCleaner.clean(block.content.strip())
             if not cleaned_content:
                 continue
-
             if block.block_type == BlockType.HEADER_1:
                 markdown_lines.append(f"\n# {cleaned_content}\n")
             elif block.block_type == BlockType.HEADER_2:
@@ -95,98 +306,81 @@ class MarkdownCompiler:
                 markdown_lines.append(f"\n{cleaned_content}\n")
             elif block.block_type == BlockType.IMAGE:
                 image_filename = os.path.basename(block.content)
-                markdown_lines.append(f"\n![Hình ảnh trực quan](images/{image_filename})\n")
+                markdown_lines.append(f"\n![image](images/{image_filename})\n")
             else:
                 markdown_lines.append(f"{cleaned_content}\n")
-                
         return "".join(markdown_lines)
 
 
+class DocumentLayoutSorter:
+    def sort_blocks(self, blocks: List[DocumentBlock]) -> List[DocumentBlock]:
+        """Sắp xếp blocks theo Y trước, X sau — hỗ trợ thứ tự đọc đa cột."""
+        return sorted(blocks, key=lambda b: (round(b.bbox.y1, 1), b.bbox.x1))
+
+
 class LocalPDFParser:
-    def __init__(self, sorter: DocumentLayoutSorter):
+    def __init__(self, sorter: DocumentLayoutSorter, thread_executor: ThreadPoolExecutor):
         self.sorter = sorter
+        self.executor = thread_executor
 
-    def _compute_font_stats(self, pdf) -> dict:
-        """
-        Phân tích thống kê font của toàn tài liệu để xác định:
-        - most_used_font_size: font size phổ biến nhất (body text)
-        - most_used_font_name: font name phổ biến nhất (body text)
-        - max_font_size: font size lớn nhất (có thể là tiêu đề)
-        - bold_font_names: tập hợp các font name có chứa 'Bold' hoặc 'bold'
-        Giống cách DetectHeaders.jsx trong pdf-to-markdown dùng mostUsedHeight và mostUsedFont.
-        """
-        from collections import Counter
-        size_counter: Counter = Counter()
-        font_counter: Counter = Counter()
-        bold_font_names = set()
-        max_font_size = 0.0
+    def _normalize_string(self, text: str) -> str:
+        return re.sub(r"\s+", "", text).lower()
 
-        for page in pdf.pages:
-            for char in page.chars:
-                size = char.get("size")
-                fname = char.get("fontname", "")
-                if size and float(size) > 0:
-                    rounded = round(float(size) * 2) / 2
-                    size_counter[rounded] += 1
-                    font_counter[fname] += 1
-                    if float(size) > max_font_size:
-                        max_font_size = float(size)
-                    # Nhận diện font bold dựa trên tên
-                    if "bold" in fname.lower() or fname.endswith("-Bold") or fname.endswith("Bold"):
-                        bold_font_names.add(fname)
-
-        most_used_size = size_counter.most_common(1)[0][0] if size_counter else 10.0
-        most_used_font = font_counter.most_common(1)[0][0] if font_counter else ""
-
-        if max_font_size == 0.0:
-            max_font_size = most_used_size
-
-        return {
-            "most_used_font_size": most_used_size,
-            "most_used_font_name": most_used_font,
-            "max_font_size": max_font_size,
-            "bold_font_names": bold_font_names,
-        }
+    def _detect_column_boundaries(self, page) -> List[Tuple[float, float]]:
+        """Phát hiện ranh giới đa cột cục bộ."""
+        if not page.chars:
+            return [(0.0, float(page.width))]
+        page_width = float(page.width)
+        margin = page_width * 0.08
+        bucket_size = 3.0
+        buckets: Dict[int, int] = {}
+        
+        for char in page.chars:
+            x = float(char.get("x0", 0))
+            if margin <= x <= page_width - margin:
+                b = int(x / bucket_size)
+                buckets[b] = buckets.get(b, 0) + 1
+                
+        if not buckets:
+            return [(0.0, page_width)]
+            
+        max_b = max(buckets.keys())
+        gap_start = None
+        gaps = []
+        for b in range(int(margin / bucket_size), max_b + 1):
+            if buckets.get(b, 0) == 0:
+                if gap_start is None:
+                    gap_start = b
+            else:
+                if gap_start is not None:
+                    gap_end = b
+                    gap_w = (gap_end - gap_start) * bucket_size
+                    gap_cx = (gap_start + gap_end) / 2 * bucket_size
+                    if gap_w > 15 and (page_width * 0.30) < gap_cx < (page_width * 0.70):
+                        gaps.append((gap_cx, gap_w))
+                    gap_start = None
+                    
+        if not gaps:
+            return [(0.0, page_width)]
+        best_gap_cx = max(gaps, key=lambda g: g[1])[0]
+        return [(0.0, best_gap_cx), (best_gap_cx, page_width)]
 
     def _determine_block_type_by_font(
-        self,
-        text: str,
-        font_size: float,
-        font_name: str,
-        most_used_size: float,
-        max_size: float,
-        most_used_font: str,
-        bold_font_names: set,
+        self, text: str, font_size: float, font_name: str,
+        most_used_size: float, max_size: float,
+        most_used_font: str, bold_font_names: set,
     ) -> BlockType:
-        """
-        Phân loại block dựa trên font size VÀ font name (digital PDF).
-        Logic tham khảo từ DetectHeaders.jsx của pdf-to-markdown:
-        - font_size > most_used_size  → header theo kích thước
-        - font_name khác most_used_font VÀ là bold → header theo trọng lượng
-        List item luôn được kiểm tra trước.
-        """
         cleaned = text.strip()
         if not cleaned:
             return BlockType.PARAGRAPH
-
-        # List item luôn được kiểm tra trước, bất kể font
         if cleaned.startswith(("- ", "* ", "• ", "● ")) or (
             len(cleaned) > 1 and re.match(r"^\d+[\.|\)]", cleaned)
         ):
             return BlockType.LIST_ITEM
-
-        # Phân loại header dựa trên font size tương đối
         if font_size > most_used_size + 0.4:
-            threshold_h2 = most_used_size + (max_size - most_used_size) / 4
             if font_size >= max_size - 0.5:
                 return BlockType.HEADER_1
-            elif font_size >= threshold_h2:
-                return BlockType.HEADER_2
-            else:
-                return BlockType.HEADER_2
-
-        # Phân loại header dựa trên font name (bold font ≠ body font)
-        # Đây là trường hợp khi PDF dùng font size đồng nhất nhưng phân biệt bằng Bold/Regular
+            return BlockType.HEADER_2
         if font_name and font_name != most_used_font:
             is_bold = (
                 font_name in bold_font_names
@@ -195,523 +389,705 @@ class LocalPDFParser:
                 or font_name.endswith("Bold")
             )
             if is_bold:
-                # BƯỚC x, Step x → H2 vì là section heading
-                if cleaned.startswith("BƯỚC") or cleaned.startswith("BUOC") or cleaned.startswith("Step"):
+                if cleaned.startswith(("BƯỚC", "BUOC", "Step")):
                     return BlockType.HEADER_2
-                # Tiêu đề ngắn (≤ 10 từ) → H1, dài hơn → H2
                 if len(cleaned.split()) <= 10:
                     return BlockType.HEADER_1
                 return BlockType.HEADER_2
-
         return BlockType.PARAGRAPH
 
-    def _determine_block_type_simple(self, text: str) -> BlockType:
-        """
-        Fallback: Phân loại khối văn bản chỉ dựa trên heuristic chuỗi ký tự.
-        Chỉ dùng cho OCR (scanned PDF) khi không có thông tin font size.
-        """
-        cleaned = text.strip()
+    def _determine_block_type_ocr(
+        self, line: TextLine, most_used_height: float, max_height: float
+    ) -> BlockType:
+        cleaned = line.text.strip()
         if not cleaned:
             return BlockType.PARAGRAPH
-
         if cleaned.startswith(("- ", "* ", "• ", "● ")) or (
             len(cleaned) > 1 and re.match(r"^\d+[\.|\)]", cleaned)
         ):
             return BlockType.LIST_ITEM
-
-        if cleaned.startswith("BƯỚC") or cleaned.startswith("BUOC") or cleaned.startswith("Step"):
-            return BlockType.HEADER_2
-
-        if cleaned.upper() == cleaned and re.search(r"[A-ZÀ-Ỷ]", cleaned) and len(cleaned.split()) <= 10:
-            if len(cleaned.split()) <= 5:
+        h = line.font_size
+        if h > most_used_height + 0.5:
+            if h >= max_height - 0.5:
                 return BlockType.HEADER_1
             return BlockType.HEADER_2
-
+        if cleaned.startswith(("BƯỚC", "BUOC", "Step")):
+            return BlockType.HEADER_2
+        if cleaned.upper() == cleaned and re.search(r"[A-ZÀ-Ỷ]", cleaned) and len(cleaned.split()) <= 10:
+            return BlockType.HEADER_1 if len(cleaned.split()) <= 5 else BlockType.HEADER_2
         return BlockType.PARAGRAPH
 
-    def _convert_table_to_markdown(self, raw_table: List[List[Optional[str]]]) -> str:
-        if not raw_table or not raw_table[0]:
-            return ""
-
-        headers = [str(cell).replace("\n", " ").strip() if cell is not None else "" for cell in raw_table[0]]
-        separator = ["---"] * len(headers)
-        
-        lines = [
-            "| " + " | ".join(headers) + " |",
-            "| " + " | ".join(separator) + " |"
-        ]
-
-        for row in raw_table[1:]:
-            row_cells = [str(cell).replace("\n", " ").strip() if cell is not None else "" for cell in row]
-            lines.append("| " + " | ".join(row_cells) + " |")
-
-        return "\n".join(lines)
-
-    def _extract_words_via_ocr(self, page, resolution: int = 150) -> List[dict]:
-        """
-        Pipeline dự phòng OCR khi tài liệu PDF mục tiêu là tài liệu quét không có Text Layer.
-        """
+    def _execute_ocr_sync(self, page, resolution: int) -> List[dict]:
+        """Tác vụ OCR chạy đồng bộ bên trong Worker Thread riêng biệt."""
         try:
-            import pytesseract
-        except ImportError:
-            logger.error("Hệ thống thiếu thư viện 'pytesseract'. Vui lòng thực thi lệnh: pip install pytesseract")
-            return []
-
-        try:
-            image_obj = page.to_image(resolution=resolution)
-            pil_img = image_obj.original
-            
-            ocr_data = pytesseract.image_to_data(pil_img, output_type=pytesseract.Output.DICT)
-            extracted_words: List[dict] = []
-            scale_factor = 72.0 / resolution
-            
-            for i in range(len(ocr_data["text"])):
-                text_content = str(ocr_data["text"][i]).strip()
-                confidence = float(ocr_data["conf"][i])
-                
-                if not text_content or confidence < 40.0:
-                    continue
-                
-                x0 = float(ocr_data["left"][i]) * scale_factor
-                top = float(ocr_data["top"][i]) * scale_factor
-                x1 = (float(ocr_data["left"][i]) + float(ocr_data["width"][i])) * scale_factor
-                bottom = (float(ocr_data["top"][i]) + float(ocr_data["height"][i])) * scale_factor
-                
-                extracted_words.append({
-                    "text": text_content,
-                    "x0": x0,
-                    "top": top,
-                    "x1": x1,
-                    "bottom": bottom
-                })
-            return extracted_words
+            pil_img = page.to_image(resolution=resolution).original
         except Exception as e:
-            logger.error(f"Lỗi hệ thống trong quá trình thực thi OCR Fallback Pipeline: {e}")
+            logger.warning(f"Không thể render trang thành ảnh: {e}")
             return []
 
-    def _group_words_to_lines(self, words: List[dict]) -> List[TextLine]:
-        """
-        Hàm gom dòng từ danh sách từ khóa, chỉ kích hoạt khi xử lý OCR Fallback của tài liệu quét.
-        """
-        sorted_words = sorted(words, key=lambda w: (w["top"], w["x0"]))
-        lines: List[List[dict]] = []
-        bounds: List[Tuple[float, float]] = []
+        scale = 72.0 / resolution
+        try:
+            from app.services.ocr.factory import OCRFactory
+            engine = OCRFactory.get_engine()
+            return engine.extract_words(pil_img, scale=scale)
+        except Exception as e:
+            logger.warning(f"OCR Engine xảy ra lỗi cục bộ: {e}")
+            return []
 
-        for word in sorted_words:
-            top = float(word["top"])
-            bottom = float(word["bottom"])
-            height = bottom - top
-            if height <= 0:
+    async def _extract_words_via_ocr_async(self, page, resolution: int = 150) -> List[dict]:
+        """Bọc tiến trình OCR nặng nề vào mã bất đồng bộ để tránh chặn Event Loop."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self.executor, self._execute_ocr_sync, page, resolution)
+
+    def _extract_line_font_info(self, cropped_page) -> Dict[str, dict]:
+        result: Dict[str, dict] = {}
+        try:
+            words = cropped_page.extract_words(
+                extra_attrs=["size", "fontname"],
+                keep_blank_chars=False, x_tolerance=3, y_tolerance=3,
+            )
+            if not words:
+                return result
+            buckets: Dict[float, List[dict]] = defaultdict(list)
+            for w in words:
+                buckets[round(float(w.get("top", 0)), 1)].append(w)
+            for _, lw in buckets.items():
+                sw = sorted(lw, key=lambda x: x["x0"])
+                line_text = " ".join(str(w["text"]) for w in sw).strip()
+                if not line_text:
+                    continue
+                sizes = [float(w["size"]) for w in sw if w.get("size") and float(w["size"]) > 0]
+                avg_size = sum(sizes) / len(sizes) if sizes else 0.0
+                fc: Counter = Counter(w.get("fontname", "") for w in sw if w.get("fontname"))
+                dominant = fc.most_common(1)[0][0] if fc else ""
+                key = self._normalize_string(line_text)
+                result[key] = {"size": avg_size, "fontname": dominant}
+        except Exception as e:
+            logger.debug(f"Thất bại khi trích xuất thông tin đặc trưng font: {e}")
+        return result
+
+    def _detect_columnar_table(self, line_map: dict, tolerance: float = 8.0) -> Optional[Tuple[int, int, List[List[str]]]]:
+        sorted_tops = sorted(line_map.keys())
+        if len(sorted_tops) < 3:
+            return None
+
+        def get_col_positions(ws):
+            return sorted(set(round(w["x0"] / tolerance) * tolerance for w in ws))
+
+        merged_map: dict = {}
+        skip_tops = set()
+        for i, top in enumerate(sorted_tops):
+            if top in skip_tops:
                 continue
+            ws = line_map[top]
+            if len(ws) <= 2 and i + 1 < len(sorted_tops):
+                next_top = sorted_tops[i + 1]
+                next_ws = line_map[next_top]
+                if next_top - top < 12:
+                    combined = sorted(ws + next_ws, key=lambda x: x["x0"])
+                    merged_map[top] = combined
+                    skip_tops.add(next_top)
+                    continue
+            merged_map[top] = ws
 
-            matched_index = None
-            for idx, (line_top, line_bottom) in enumerate(bounds):
-                overlap_top = max(top, line_top)
-                overlap_bottom = min(bottom, line_bottom)
-                overlap_height = max(0.0, overlap_bottom - overlap_top)
-                min_height = min(height, line_bottom - line_top)
-                if min_height > 0 and (overlap_height / min_height) > 0.5:
-                    matched_index = idx
-                    break
+        merged_tops = sorted(merged_map.keys())
+        final_map: dict = {}
+        skip2 = set()
+        for i, top in enumerate(merged_tops):
+            if top in skip2:
+                continue
+            ws_cur = merged_map[top]
+            if i + 1 < len(merged_tops):
+                next_top = merged_tops[i + 1]
+                if next_top - top < 20:
+                    ws_next = merged_map[next_top]
+                    if 2 <= len(ws_next) < len(ws_cur):
+                        ws_cur_sorted = sorted(ws_cur, key=lambda x: x["x0"])
+                        ws_next_sorted = sorted(ws_next, key=lambda x: x["x0"])
+                        combined = [dict(w) for w in ws_cur_sorted]
 
-            if matched_index is None:
-                lines.append([word])
-                bounds.append((top, bottom))
+                        boundaries = []
+                        for ci in range(len(ws_cur_sorted) - 1):
+                            x1_cur = ws_cur_sorted[ci].get("x1", ws_cur_sorted[ci]["x0"] + len(ws_cur_sorted[ci]["text"]) * 4.5)
+                            x0_next = ws_cur_sorted[ci + 1]["x0"]
+                            boundaries.append((x1_cur + x0_next) / 2)
+
+                        def find_col_by_boundary(x):
+                            for ci, bnd in enumerate(boundaries):
+                                if x < bnd:
+                                    return ci
+                            return len(boundaries)
+
+                        cell_col_map: dict = {}
+                        for w_next in ws_next_sorted:
+                            col_idx = find_col_by_boundary(w_next["x0"])
+                            cell_col_map.setdefault(col_idx, []).append(w_next["text"])
+
+                        for col_idx, texts in cell_col_map.items():
+                            combined[col_idx] = dict(combined[col_idx])
+                            combined[col_idx]["text"] = (combined[col_idx]["text"] + " " + " ".join(texts)).strip()
+
+                        final_map[top] = combined
+                        skip2.add(next_top)
+                        continue
+            final_map[top] = merged_map[top]
+
+        merged_map = final_map
+        sorted_merged = sorted(merged_map.keys())
+
+        def cols_match(pos1, pos2, tol=tolerance * 2):
+            if abs(len(pos1) - len(pos2)) > 1:
+                return False
+            common = min(len(pos1), len(pos2))
+            return all(abs(pos1[i] - pos2[i]) <= tol for i in range(common))
+
+        best_run: List = []
+        best_run_start = None
+        current_run: List = []
+        current_run_start = None
+        ref_cols = None
+
+        for top in sorted_merged:
+            ws = merged_map[top]
+            cols = get_col_positions(ws)
+            if len(cols) >= 3:
+                if ref_cols is None:
+                    ref_cols = cols
+                    current_run_start = top
+                    current_run = [ws]
+                elif cols_match(cols, ref_cols):
+                    current_run.append(ws)
+                else:
+                    if len(current_run) > len(best_run):
+                        best_run = current_run
+                        best_run_start = current_run_start
+                    ref_cols = cols
+                    current_run_start = top
+                    current_run = [ws]
             else:
-                lines[matched_index].append(word)
-                line_top, line_bottom = bounds[matched_index]
-                bounds[matched_index] = (min(line_top, top), max(line_bottom, bottom))
+                if len(current_run) > len(best_run):
+                    best_run = current_run
+                    best_run_start = current_run_start
+                ref_cols = None
+                current_run_start = None
+                current_run = []
 
-        text_lines: List[TextLine] = []
-        for line_words in lines:
-            sorted_line_words = sorted(line_words, key=lambda w: w["x0"])
-            text = " ".join(str(w["text"]) for w in sorted_line_words)
+        if len(current_run) > len(best_run):
+            best_run = current_run
+            best_run_start = current_run_start
+
+        if len(best_run) < 3:
+            return None
+
+        all_x0 = []
+        for ws in best_run:
+            all_x0.extend(w["x0"] for w in ws)
+        all_x0.sort()
+
+        col_centers: List[float] = []
+        for x in all_x0:
+            if not col_centers or x - col_centers[-1] > tolerance:
+                col_centers.append(x)
+            else:
+                col_centers[-1] = (col_centers[-1] + x) / 2
+
+        def assign_col(x):
+            return min(range(len(col_centers)), key=lambda i: abs(col_centers[i] - x))
+
+        rows: List[List[str]] = []
+        for ws in best_run:
+            row = [""] * len(col_centers)
+            for w in ws:
+                ci = assign_col(w["x0"])
+                row[ci] = (row[ci] + " " + w["text"]).strip()
+            rows.append(row)
+
+        ncols_data = len(col_centers)
+        header_rows: List[List[str]] = []
+        original_run_start = best_run_start
+        run_start_idx = sorted_merged.index(best_run_start)
+
+        def is_header_candidate(ws):
+            if len(ws) < 2 or len(ws) > ncols_data * 2:
+                return False
+            matches = 0
+            for cx in col_centers:
+                for w in ws:
+                    if abs(w["x0"] - cx) <= tolerance:
+                        matches += 1
+                        break
+            return matches >= max(3, int(ncols_data * 0.6))
+
+        for i in range(run_start_idx - 1, -1, -1):
+            top = sorted_merged[i]
+            ws = merged_map[top]
+            if best_run_start - top > 30:
+                break
+            if is_header_candidate(ws):
+                row = [""] * len(col_centers)
+                for w in ws:
+                    ci = assign_col(w["x0"])
+                    row[ci] = (row[ci] + " " + w["text"]).strip()
+                header_rows.insert(0, row)
+                best_run_start = top
+
+        all_rows = header_rows + rows
+        data_end_idx = sorted_merged.index(original_run_start) + len(best_run) - 1
+        end_top = sorted_merged[min(data_end_idx, len(sorted_merged) - 1)]
+
+        return (best_run_start, end_top, all_rows)
+
+    def _process_text_band_mupdf(
+        self, mupdf_blocks: List[dict], band_y1: float, band_y2: float,
+        page_width: float, most_used_font_size: float, max_font_size: float,
+    ) -> List[DocumentBlock]:
+        """
+        Xử lý band text dùng pymupdf blocks — chất lượng unicode tốt hơn.
+        mupdf_blocks: list blocks từ MuPDFTextExtractor.get_page_blocks() đã lọc theo band.
+        """
+        blocks: List[DocumentBlock] = []
+        if not mupdf_blocks:
+            return blocks
+
+        # Lọc blocks trong band này
+        band_blocks = [
+            b for b in mupdf_blocks
+            if band_y1 <= (b["y0"] + b["y1"]) / 2 <= band_y2
+        ]
+        if not band_blocks:
+            return blocks
+
+        # Phân loại từng line dựa trên font_size và bold flag
+        for b in band_blocks:
+            text = PDFTextCleaner.clean(b["text"].strip())
             if not text:
                 continue
 
-            x1 = min(w["x0"] for w in sorted_line_words)
-            y1 = min(w["top"] for w in sorted_line_words)
-            x2 = max(w["x1"] for w in sorted_line_words)
-            y2 = max(w["bottom"] for w in sorted_line_words)
-            avg_font_size = sum(float(w["bottom"]) - float(w["top"]) for w in sorted_line_words) / len(sorted_line_words)
+            font_size = b["font_size"]
+            is_bold = b["bold"]
 
-            text_lines.append(TextLine(
-                text=text,
-                bbox=BoundingBox(x1, y1, x2, y2),
-                font_size=avg_font_size,
-                words=sorted_line_words
+            # Phân loại block type
+            if text.startswith(("- ", "* ", "• ", "● ", "– ")) or (
+                len(text) > 1 and re.match(r"^\d+[\.|\)]", text)
+            ):
+                btype = BlockType.LIST_ITEM
+            elif text.startswith("•"):
+                # Bullet point từ pymupdf
+                text = "- " + text[1:].strip()
+                btype = BlockType.LIST_ITEM
+            elif font_size > most_used_font_size + 0.4:
+                if font_size >= max_font_size - 0.5:
+                    btype = BlockType.HEADER_1
+                else:
+                    btype = BlockType.HEADER_2
+            elif is_bold:
+                if text.startswith(("BƯỚC", "BUOC", "Step")):
+                    btype = BlockType.HEADER_2
+                elif len(text.split()) <= 10:
+                    btype = BlockType.HEADER_1
+                else:
+                    btype = BlockType.HEADER_2
+            else:
+                btype = BlockType.PARAGRAPH
+
+            blocks.append(DocumentBlock(
+                block_type=btype,
+                bbox=BoundingBox(b["x0"], b["y0"], b["x1"], b["y1"]),
+                content=text,
             ))
+        return blocks
 
-        return text_lines
+    def _process_text_band(
+        self, cropped_page, band_y1: float, band_y2: float,
+        page_width: float, most_used_font_size: float, most_used_font_name: str,
+        max_font_size: float, bold_font_names: set,
+    ) -> List[DocumentBlock]:
+        blocks: List[DocumentBlock] = []
+        text_content = cropped_page.extract_text(x_tolerance=3, y_tolerance=3)
+        use_layout = False
+        
+        if text_content:
+            words_normal = text_content.split()
+            long_no_space = sum(1 for w in words_normal if len(w) > 15)
+            if len(words_normal) > 0 and long_no_space / len(words_normal) > 0.08:
+                use_layout = True
+                fine_words = cropped_page.extract_words(x_tolerance=2, y_tolerance=3, keep_blank_chars=False)
+                if fine_words:
+                    line_map: dict = defaultdict(list)
+                    for w in fine_words:
+                        top_key = round(float(w.get("top", 0)), 0)
+                        line_map[top_key].append(w)
 
-    def _extract_line_font_info(self, cropped_page) -> Dict[str, dict]:
-        """
-        Trích xuất font size và font name trung bình/phổ biến cho từng dòng văn bản.
-        Key là text của dòng (strip), value là dict {"size": float, "fontname": str}.
-        Dùng extra_attrs để pdfplumber trả về thuộc tính 'size' và 'fontname' từng word.
-        """
-        line_info: Dict[str, dict] = {}
-        try:
-            words_with_attrs = cropped_page.extract_words(
-                extra_attrs=["size", "fontname"],
-                keep_blank_chars=False,
-                x_tolerance=3,
-                y_tolerance=3
+                    table_result = self._detect_columnar_table(line_map)
+                    table_top_range = set()
+                    if table_result:
+                        t_start, t_end, t_rows = table_result
+                        md_table = TableConverter.to_markdown(t_rows)
+                        if md_table:
+                            blocks.append(DocumentBlock(
+                                block_type=BlockType.TABLE,
+                                bbox=BoundingBox(0.0, t_start, page_width, t_end),
+                                content=md_table,
+                            ))
+                        for top in line_map.keys():
+                            if t_start - 1 <= top <= t_end + 15:
+                                table_top_range.add(top)
+
+                    rebuilt_lines = []
+                    line_y_positions = []
+                    for top_key in sorted(line_map.keys()):
+                        if top_key in table_top_range:
+                            continue
+                        line_words = sorted(line_map[top_key], key=lambda w: w["x0"])
+                        line_text = " ".join(w["text"] for w in line_words)
+                        rebuilt_lines.append(line_text)
+                        line_y_positions.append(top_key)
+                    text_content = "\n".join(rebuilt_lines) if rebuilt_lines else ""
+
+        if not text_content:
+            return blocks
+
+        font_info = self._extract_line_font_info(cropped_page)
+
+        def lookup_font(text: str) -> dict:
+            key = self._normalize_string(text)
+            if key in font_info:
+                return font_info[key]
+            for k, v in font_info.items():
+                if k in key or key in k:
+                    return v
+            return {}
+
+        _line_y_pos = line_y_positions if use_layout else []
+        raw_lines = text_content.split("\n")
+        merged: List[dict] = []
+        acc: List[str] = []
+        acc_is_header = False
+        acc_y: float = band_y1
+
+        def flush():
+            if acc:
+                merged.append({"text": " ".join(acc), "is_header": acc_is_header, "y": acc_y})
+                acc.clear()
+
+        for line_idx, line in enumerate(raw_lines):
+            cleaned = line.strip()
+            if not cleaned:
+                continue
+            current_y = _line_y_pos[line_idx] if line_idx < len(_line_y_pos) else band_y1
+
+            is_list = cleaned.startswith(("- ", "* ", "• ", "● ")) or bool(re.match(r"^\d+[\.|\)]", cleaned))
+            fi = lookup_font(cleaned)
+            lsize = fi.get("size", most_used_font_size)
+            lfont = fi.get("fontname", most_used_font_name)
+            is_bold = (lfont != most_used_font_name and ("bold" in lfont.lower() or lfont in bold_font_names)) or lsize > most_used_font_size + 0.4
+
+            if use_layout:
+                merged.append({"text": cleaned, "is_header": is_bold, "y": current_y})
+                continue
+
+            if is_list:
+                flush()
+                acc_is_header = False
+                merged.append({"text": cleaned, "is_header": False, "y": current_y})
+            elif is_bold:
+                if acc_is_header:
+                    acc.append(cleaned)
+                else:
+                    flush()
+                    acc.append(cleaned)
+                    acc_is_header = True
+                    acc_y = current_y
+            else:
+                if acc_is_header:
+                    flush()
+                    acc_is_header = False
+                    acc.append(cleaned)
+                    acc_y = current_y
+                else:
+                    if acc:
+                        last_line = acc[-1]
+                        ends_punc = last_line[-1] in ".!?:" if last_line else False
+                        starts_lower = cleaned[0].islower() if cleaned else False
+                        if not ends_punc or starts_lower:
+                            acc.append(cleaned)
+                        else:
+                            flush()
+                            acc.append(cleaned)
+                            acc_y = current_y
+                    else:
+                        acc.append(cleaned)
+                        acc_y = current_y
+        flush()
+
+        for entry in merged:
+            lt = entry["text"]
+            fi = lookup_font(lt)
+            lsize = fi.get("size", most_used_font_size)
+            lfont = fi.get("fontname", most_used_font_name)
+            btype = self._determine_block_type_by_font(
+                lt, lsize, lfont, most_used_font_size, max_font_size,
+                most_used_font_name, bold_font_names,
             )
-            if not words_with_attrs:
-                return line_info
+            entry_y = entry.get("y", band_y1)
+            blocks.append(DocumentBlock(
+                block_type=btype,
+                bbox=BoundingBox(0.0, entry_y, page_width, entry_y + 10),
+                content=lt,
+            ))
+        return blocks
 
-            from collections import defaultdict, Counter
-            line_buckets: Dict[float, List[dict]] = defaultdict(list)
-            for w in words_with_attrs:
-                top_key = round(float(w.get("top", 0)), 1)
-                line_buckets[top_key].append(w)
+    async def _process_page_column_async(
+        self, page, page_idx: int,
+        col_x1: float, col_x2: float,
+        most_used_font_size: float, most_used_font_name: str,
+        max_font_size: float, bold_font_names: set,
+        image_output_dir: Optional[str],
+        block_counter_ref: List[int],
+        mupdf_blocks: Optional[List[dict]] = None,
+    ) -> List[DocumentBlock]:
+        col_blocks: List[DocumentBlock] = []
+        page_area = float(page.width) * float(page.height)
 
-            for top_key, line_words in line_buckets.items():
-                sorted_words = sorted(line_words, key=lambda x: x["x0"])
-                line_text = " ".join(str(w["text"]) for w in sorted_words).strip()
-                if not line_text:
-                    continue
-                sizes = [float(w["size"]) for w in sorted_words if w.get("size") and float(w["size"]) > 0]
-                avg_size = sum(sizes) / len(sizes) if sizes else 0.0
-                # Font name phổ biến nhất của dòng
-                font_counter: Counter = Counter(
-                    w.get("fontname", "") for w in sorted_words if w.get("fontname")
-                )
-                dominant_font = font_counter.most_common(1)[0][0] if font_counter else ""
-                line_info[line_text] = {"size": avg_size, "fontname": dominant_font}
-        except Exception as e:
-            logger.debug(f"Không thể trích xuất font info cho vùng crop: {e}")
-        return line_info
+        raw_elements = []
+        tables = page.find_tables()
+        for table in tables:
+            tx1, ty1, tx2, ty2 = table.bbox
+            if col_x1 <= (tx1 + tx2) / 2 <= col_x2:
+                raw_elements.append({"y1": float(ty1), "y2": float(ty2), "type": "table", "data": table})
 
-    def parse(self, pdf_path: str, output_dir: Optional[str] = None) -> List[DocumentBlock]:
+        for img in page.images:
+            y1, y2 = float(img["top"]), float(img["bottom"])
+            x0, x1 = float(img["x0"]), float(img["x1"])
+            w, h = x1 - x0, y2 - y1
+            if h <= 0 or w <= 0 or w < 10 or h < 10:
+                continue
+            if (w * h) / page_area > 0.90:
+                continue
+            if col_x1 <= (x0 + x1) / 2 <= col_x2:
+                raw_elements.append({"y1": y1, "y2": y2, "type": "image", "data": img})
+
+        raw_elements.sort(key=lambda e: e["y1"])
+        merged_intervals = []
+        for el in raw_elements:
+            if not merged_intervals or el["y1"] > merged_intervals[-1]["y2"] + 3.0:
+                merged_intervals.append({"y1": el["y1"], "y2": el["y2"], "elements": [el]})
+            else:
+                last = merged_intervals[-1]
+                last["y2"] = max(last["y2"], el["y2"])
+                last["elements"].append(el)
+
+        bands = []
+        cur_y = 0.0
+        page_h = float(page.height)
+        for iv in merged_intervals:
+            if iv["y1"] > cur_y + 1.0:
+                bands.append({"type": "text", "y1": cur_y, "y2": iv["y1"]})
+            bands.append({"type": "exclusion", "y1": iv["y1"], "y2": iv["y2"], "elements": iv["elements"]})
+            cur_y = iv["y2"]
+        if cur_y < page_h - 1.0:
+            bands.append({"type": "text", "y1": cur_y, "y2": page_h})
+
+        words = page.extract_words(keep_blank_chars=False)
+        is_scanned = False
+        if not words:
+            # Chạy tác vụ OCR bất đồng bộ không gây nghẽn hệ thống
+            words = await self._extract_words_via_ocr_async(page)
+            is_scanned = bool(words)
+
+        ocr_most_used_h, ocr_max_h = 10.0, 10.0
+        if is_scanned and words:
+            all_lines_for_stats = TextLineGrouper.group(words)
+            if all_lines_for_stats:
+                heights = [round(line.font_size * 2) / 2 for line in all_lines_for_stats if line.font_size > 0]
+                if heights:
+                    ocr_most_used_h = Counter(heights).most_common(1)[0][0]
+                    ocr_max_h = max(heights)
+
+        for band in bands:
+            if band["type"] == "text":
+                crop = page.crop((col_x1, band["y1"], col_x2, band["y2"]), relative=False)
+                if is_scanned:
+                    bw = [w for w in words
+                          if col_x1 <= (w["x0"] + w["x1"]) / 2 <= col_x2
+                          and band["y1"] <= (w["top"] + w["bottom"]) / 2 <= band["y2"]]
+                    for line in TextLineGrouper.group(bw):
+                        col_blocks.append(DocumentBlock(
+                            block_type=self._determine_block_type_ocr(line, ocr_most_used_h, ocr_max_h),
+                            bbox=line.bbox, content=line.text,
+                        ))
+                elif mupdf_blocks is not None:
+                    # Dùng pymupdf blocks — unicode tốt hơn, không bị encode artifact
+                    mupdf_band = [
+                        b for b in mupdf_blocks
+                        if col_x1 <= (b["x0"] + b["x1"]) / 2 <= col_x2
+                        and band["y1"] <= (b["y0"] + b["y1"]) / 2 <= band["y2"]
+                    ]
+                    col_blocks.extend(self._process_text_band_mupdf(
+                        mupdf_band, band["y1"], band["y2"],
+                        col_x2 - col_x1, most_used_font_size, max_font_size,
+                    ))
+                else:
+                    col_blocks.extend(self._process_text_band(
+                        crop, band["y1"], band["y2"], col_x2 - col_x1,
+                        most_used_font_size, most_used_font_name,
+                        max_font_size, bold_font_names,
+                    ))
+            elif band["type"] == "exclusion":
+                for el in sorted(band["elements"], key=lambda e: e["data"].bbox[0] if e["type"] == "table" else e["data"]["x0"]):
+                    if el["type"] == "table":
+                        raw = el["data"].extract()
+                        if raw:
+                            col_blocks.append(DocumentBlock(
+                                block_type=BlockType.TABLE,
+                                bbox=BoundingBox(*el["data"].bbox),
+                                content=TableConverter.to_markdown(raw),
+                            ))
+                    elif el["type"] == "image" and image_output_dir:
+                        os.makedirs(image_output_dir, exist_ok=True)
+                        img = el["data"]
+                        bbox = (img["x0"], img["top"], img["x1"], img["bottom"])
+                        block_counter_ref[0] += 1
+                        name = f"page_{page_idx + 1}_img_{block_counter_ref[0]}.png"
+                        path = os.path.join(image_output_dir, name)
+                        try:
+                            safe_bbox = (
+                                max(0.0, bbox[0]),
+                                max(0.0, bbox[1]),
+                                min(float(page.width), bbox[2]),
+                                min(float(page.height), bbox[3]),
+                            )
+                            page.crop(safe_bbox).to_image(resolution=150).save(path)
+                            col_blocks.append(DocumentBlock(
+                                block_type=BlockType.IMAGE,
+                                bbox=BoundingBox(*bbox), content=path,
+                            ))
+                        except Exception as e:
+                            logger.warning(f"Không thể lưu trữ tệp tin hình ảnh {path}: {e}")
+        return col_blocks
+
+    async def parse_async(self, pdf_path: str, output_dir: Optional[str] = None) -> List[DocumentBlock]:
         try:
             import pdfplumber
         except ImportError as exc:
-            raise ImportError("Thư viện 'pdfplumber' chưa được cài đặt. Vui lòng chạy: pip install pdfplumber") from exc
+            raise ImportError("Vui lòng cài đặt thư viện phân tích cấu trúc: pip install pdfplumber") from exc
 
         extracted_blocks: List[DocumentBlock] = []
         image_output_dir = os.path.join(output_dir, "images") if output_dir else None
+        img_counter = [0]
 
-        with pdfplumber.open(pdf_path) as pdf:
-            # Pass 1: Tính thống kê font toàn tài liệu (font size + font name + bold)
-            font_stats = self._compute_font_stats(pdf)
-            most_used_font_size = font_stats["most_used_font_size"]
-            most_used_font_name = font_stats["most_used_font_name"]
-            max_font_size = font_stats["max_font_size"]
-            bold_font_names = font_stats["bold_font_names"]
-            logger.info(
-                f"Font size phổ biến: {most_used_font_size}pt | Lớn nhất: {max_font_size}pt | "
-                f"Body font: {most_used_font_name} | Bold fonts: {bold_font_names}"
-            )
+        # Mở pymupdf song song với pdfplumber để lấy text chất lượng cao
+        use_mupdf = MuPDFTextExtractor.available()
+        fitz_doc = None
+        mupdf_font_stats = None
+        if use_mupdf:
+            try:
+                import fitz
+                fitz_doc = fitz.open(pdf_path)
+                mupdf_font_stats = MuPDFTextExtractor.compute_font_stats_from_doc(fitz_doc)
+                logger.info(
+                    f"pymupdf available — font stats: "
+                    f"most_used={mupdf_font_stats['most_used']:.1f}pt, "
+                    f"max={mupdf_font_stats['max']:.1f}pt"
+                )
+            except Exception as e:
+                logger.warning(f"pymupdf init failed, falling back to pdfplumber: {e}")
+                use_mupdf = False
+                fitz_doc = None
 
-            for page_idx, page in enumerate(pdf.pages):
-                logger.info(f"Đang phân tích Trang {page_idx + 1}/{len(pdf.pages)}")
-                
-                page_area = float(page.width) * float(page.height)
-                raw_elements = []
+        try:
+            with pdfplumber.open(pdf_path) as pdf:
+                font_stats = FontStatsAnalyzer.analyze(pdf)
+                mfs = font_stats["most_used_font_size"]
+                mfn = font_stats["most_used_font_name"]
+                maxfs = font_stats["max_font_size"]
+                bold_fonts = font_stats["bold_font_names"]
 
-                # Bước 1: Thu thập tọa độ và dữ liệu của tất cả các bảng biểu trên trang
-                tables = page.find_tables()
-                for table in tables:
-                    raw_elements.append({
-                        "y1": float(table.bbox[1]),
-                        "y2": float(table.bbox[3]),
-                        "type": "table",
-                        "data": table
-                    })
+                # Nếu có pymupdf, dùng font stats của nó (chính xác hơn)
+                if mupdf_font_stats:
+                    mfs = mupdf_font_stats["most_used"]
+                    maxfs = mupdf_font_stats["max"]
 
-                # Bước 2: Thu thập tọa độ của tất cả các ảnh (loại trừ ảnh nền trang trí lớn > 90% diện tích trang)
-                for img in page.images:
-                    y1 = float(img["top"])
-                    y2 = float(img["bottom"])
-                    x0 = float(img["x0"])
-                    x1 = float(img["x1"])
-                    w = x1 - x0
-                    h = y2 - y1
-                    if h <= 0 or w <= 0:
-                        continue
-                    if (w * h) / page_area > 0.90:
-                        continue
-                    raw_elements.append({
-                        "y1": y1,
-                        "y2": y2,
-                        "type": "image",
-                        "data": img
-                    })
+                logger.info(f"Body font: {mfn} | size: {mfs}pt | max: {maxfs}pt | bold: {bold_fonts}")
 
-                # Bước 3: Sắp xếp và hợp nhất các khoảng tọa độ Y bị chồng lấn (Overlap)
-                raw_elements.sort(key=lambda e: e["y1"])
-                merged_intervals = []
-                for el in raw_elements:
-                    if not merged_intervals:
-                        merged_intervals.append({
-                            "y1": el["y1"],
-                            "y2": el["y2"],
-                            "elements": [el]
-                        })
-                    else:
-                        last = merged_intervals[-1]
-                        # Hợp nhất nếu dải chặn Y bị đè lên nhau hoặc quá gần nhau (ngưỡng dung sai 3 point)
-                        if el["y1"] <= last["y2"] + 3.0:
-                            last["y2"] = max(last["y2"], el["y2"])
-                            last["elements"].append(el)
-                        else:
-                            merged_intervals.append({
-                                "y1": el["y1"],
-                                "y2": el["y2"],
-                                "elements": [el]
-                            })
+                for page_idx, page in enumerate(pdf.pages):
+                    logger.info(f"Đang phân tích cấu trúc trang {page_idx + 1}/{len(pdf.pages)}")
 
-                # Bước 4: Tạo cấu trúc các dải ngang (Bands) xen kẽ nhau tuần tự từ trên xuống dưới
-                bands = []
-                current_y = 0.0
-                page_height = float(page.height)
+                    # Lấy pymupdf blocks cho trang này (nếu có)
+                    mupdf_page_blocks = None
+                    if use_mupdf and fitz_doc and page_idx < len(fitz_doc):
+                        try:
+                            mupdf_page_blocks = MuPDFTextExtractor.get_page_blocks(fitz_doc[page_idx])
+                        except Exception as e:
+                            logger.debug(f"pymupdf page {page_idx+1} error: {e}")
 
-                for interval in merged_intervals:
-                    if interval["y1"] > current_y + 1.0:
-                        bands.append({
-                            "type": "text",
-                            "y1": current_y,
-                            "y2": interval["y1"]
-                        })
-                    bands.append({
-                        "type": "exclusion",
-                        "y1": interval["y1"],
-                        "y2": interval["y2"],
-                        "elements": interval["elements"]
-                    })
-                    current_y = interval["y2"]
-
-                if current_y < page_height - 1.0:
-                    bands.append({
-                        "type": "text",
-                        "y1": current_y,
-                        "y2": page_height
-                    })
-
-                # Bước 5: Kiểm tra xem PDF gốc có Text Layer hay không
-                words = page.extract_words(keep_blank_chars=False)
-                is_scanned = False
-                if not words:
-                    logger.info(f"Kích hoạt OCR engine cho trang quét {page_idx + 1}")
-                    words = self._extract_words_via_ocr(page, resolution=150)
-                    if words:
-                        is_scanned = True
-
-                # Bước 6: Phân tích và trích xuất dữ liệu chi tiết theo từng dải
-                for band in bands:
-                    if band["type"] == "text":
-                        if is_scanned:
-                            # Phân luồng xử lý tài liệu quét (Scanned PDF) bằng OCR
-                            band_words = [
-                                w for w in words 
-                                if band["y1"] <= (w["top"] + w["bottom"]) / 2 <= band["y2"]
-                            ]
-                            if band_words:
-                                lines = self._group_words_to_lines(band_words)
-                                for line in lines:
-                                    block_type = self._determine_block_type_simple(line.text)
-                                    extracted_blocks.append(
-                                        DocumentBlock(
-                                            block_type=block_type,
-                                            bbox=line.bbox,
-                                            content=line.text
-                                        )
-                                    )
-                        else:
-                            # Phân luồng xử lý tài liệu số (Digital PDF): Trích xuất cục bộ tuyệt đối chính xác bằng Native Engine
-                            cropped_page = page.crop((0, band["y1"], page.width, band["y2"]), relative=False)
-                            text_content = cropped_page.extract_text(x_tolerance=3, y_tolerance=3)
-
-                            # Trích xuất font info (size + fontname) cho từng dòng trong vùng band này
-                            line_font_info = self._extract_line_font_info(cropped_page)
-                            
-                            if text_content:
-                                raw_lines = text_content.split("\n")
-                                # Mỗi entry: {"text": str, "is_header": bool, "is_list": bool}
-                                merged_lines: List[dict] = []
-                                current_accumulator: List[str] = []
-                                current_acc_is_header: bool = False
-
-                                def flush_accumulator():
-                                    if current_accumulator:
-                                        merged_lines.append({
-                                            "text": " ".join(current_accumulator),
-                                            "is_header": current_acc_is_header,
-                                        })
-                                        current_accumulator.clear()
-
-                                # Giải thuật gộp các dòng bị ngắt dòng vật lý của cùng một đoạn văn
-                                for line in raw_lines:
-                                    cleaned = line.strip()
-                                    if not cleaned:
-                                        continue
-
-                                    is_list = (
-                                        cleaned.startswith(("- ", "* ", "• ", "● ")) or
-                                        bool(re.match(r"^\d+[\.|\)]", cleaned))
-                                    )
-
-                                    # Lấy font info của dòng vật lý này
-                                    line_info = line_font_info.get(cleaned, {})
-                                    line_size = line_info.get("size", most_used_font_size)
-                                    line_fname = line_info.get("fontname", most_used_font_name)
-                                    is_bold_line = (
-                                        line_fname != most_used_font_name
-                                        and (
-                                            "bold" in line_fname.lower()
-                                            or line_fname in bold_font_names
-                                        )
-                                    ) or line_size > most_used_font_size + 0.4
-
-                                    if is_list:
-                                        # List item: flush accumulator, emit list item riêng
-                                        flush_accumulator()
-                                        merged_lines.append({"text": cleaned, "is_header": False})
-                                    elif is_bold_line:
-                                        if current_acc_is_header:
-                                            # Tiếp tục gộp các dòng bold liên tiếp (wrap của cùng 1 heading)
-                                            current_accumulator.append(cleaned)
-                                        else:
-                                            # Flush paragraph hiện tại, bắt đầu header mới
-                                            flush_accumulator()
-                                            current_accumulator.append(cleaned)
-                                            current_acc_is_header = True
-                                    else:
-                                        if current_acc_is_header:
-                                            # Gặp dòng thường sau header → flush header, bắt đầu paragraph mới
-                                            flush_accumulator()
-                                            current_acc_is_header = False
-                                            current_accumulator.append(cleaned)
-                                        else:
-                                            # Tiếp tục gộp paragraph
-                                            if current_accumulator:
-                                                last_line = current_accumulator[-1]
-                                                ends_with_punc = last_line[-1] in (".", "!", "?", ":") if last_line else False
-                                                starts_with_lower = cleaned[0].islower() if cleaned else False
-                                                if not ends_with_punc or starts_with_lower:
-                                                    current_accumulator.append(cleaned)
-                                                else:
-                                                    flush_accumulator()
-                                                    current_accumulator.append(cleaned)
-                                            else:
-                                                current_accumulator.append(cleaned)
-
-                                flush_accumulator()
-
-                                for entry in merged_lines:
-                                    line_text = entry["text"]
-                                    # Tra cứu font info thực tế của dòng (sau khi merge)
-                                    line_info = line_font_info.get(line_text.strip())
-                                    if not line_info:
-                                        for key, val in line_font_info.items():
-                                            if line_text.strip().startswith(key) or key in line_text.strip():
-                                                line_info = val
-                                                break
-                                    line_size = line_info.get("size", most_used_font_size) if line_info else most_used_font_size
-                                    line_fname = line_info.get("fontname", most_used_font_name) if line_info else most_used_font_name
-                                    block_type = self._determine_block_type_by_font(
-                                        line_text, line_size, line_fname,
-                                        most_used_font_size, max_font_size,
-                                        most_used_font_name, bold_font_names
-                                    )
-                                    extracted_blocks.append(
-                                        DocumentBlock(
-                                            block_type=block_type,
-                                            bbox=BoundingBox(0.0, band["y1"], float(page.width), band["y2"]),
-                                            content=line_text
-                                        )
-                                    )
-
-                    elif band["type"] == "exclusion":
-                        # Trích xuất cấu trúc bảng biểu và hình ảnh
-                        sorted_elements = sorted(
-                            band["elements"], 
-                            key=lambda e: e["data"].bbox[0] if e["type"] == "table" else e["data"]["x0"]
+                    columns = self._detect_column_boundaries(page)
+                    for col_x1, col_x2 in columns:
+                        col_blocks = await self._process_page_column_async(
+                            page, page_idx, col_x1, col_x2,
+                            mfs, mfn, maxfs, bold_fonts,
+                            image_output_dir, img_counter,
+                            mupdf_blocks=mupdf_page_blocks,
                         )
-                        for el in sorted_elements:
-                            if el["type"] == "table":
-                                table = el["data"]
-                                raw_table_data = table.extract()
-                                if raw_table_data:
-                                    extracted_blocks.append(
-                                        DocumentBlock(
-                                            block_type=BlockType.TABLE,
-                                            bbox=BoundingBox(*table.bbox),
-                                            content=self._convert_table_to_markdown(raw_table_data)
-                                        )
-                                    )
-                            elif el["type"] == "image" and image_output_dir:
-                                os.makedirs(image_output_dir, exist_ok=True)
-                                img = el["data"]
-                                image_bbox = (img["x0"], img["top"], img["x1"], img["bottom"])
-                                image_name = f"page_{page_idx + 1}_img_{len(extracted_blocks) + 1}.png"
-                                image_path = os.path.join(image_output_dir, image_name)
-                                try:
-                                    page.crop(image_bbox).to_image(resolution=150).save(image_path)
-                                    extracted_blocks.append(
-                                        DocumentBlock(
-                                            block_type=BlockType.IMAGE,
-                                            bbox=BoundingBox(*image_bbox),
-                                            content=image_path
-                                        )
-                                    )
-                                except Exception as e:
-                                    logger.warning(f"Không thể trích xuất cấu trúc ảnh tại {image_path}: {e}")
+                        extracted_blocks.extend(col_blocks)
+        finally:
+            if fitz_doc:
+                fitz_doc.close()
 
         return self.sorter.sort_blocks(extracted_blocks)
-
 
 class LocalCoreEngine:
     def __init__(self):
         self.sorter = DocumentLayoutSorter()
-        self.pdf_parser = LocalPDFParser(self.sorter)
+        # Khởi tạo ThreadPool gồm 4 Core Workers xử lý OCR nền
+        self.executor = ThreadPoolExecutor(max_workers=4)
+        self.pdf_parser = LocalPDFParser(self.sorter, self.executor)
 
-    def extract_markdown_string(self, pdf_path: str, output_dir: Optional[str] = None) -> str:
+    async def extract_markdown_string_async(self, pdf_path: str, output_dir: Optional[str] = None) -> str:
         if not os.path.exists(pdf_path):
-            raise FileNotFoundError(f"Không tìm thấy tệp tin PDF mục tiêu: {pdf_path}")
-            
-        document_ast = self.pdf_parser.parse(pdf_path, output_dir=output_dir)
-        return MarkdownCompiler.compile(document_ast)
+            raise FileNotFoundError(f"Không tìm thấy file nguồn yêu cầu: {pdf_path}")
+        parsed_blocks = await self.pdf_parser.parse_async(pdf_path, output_dir=output_dir)
+        return MarkdownCompiler.compile(parsed_blocks)
 
-    def convert_pdf_to_markdown(self, pdf_path: str, output_md_path: str) -> None:
-        logger.info(f"Bắt đầu quá trình trích xuất và lưu trữ file: {pdf_path}")
-        
+    async def convert_pdf_to_markdown_async(self, pdf_path: str, output_md_path: str) -> None:
+        logger.info(f"Khởi động tiến trình chuyển đổi: {pdf_path}")
         output_dir = os.path.dirname(output_md_path) or "."
         os.makedirs(output_dir, exist_ok=True)
-            
-        markdown_result = self.extract_markdown_string(pdf_path, output_dir=output_dir)
-        
+        md = await self.extract_markdown_string_async(pdf_path, output_dir=output_dir)
         with open(output_md_path, "w", encoding="utf-8") as f:
-            f.write(markdown_result)
-            
-        logger.info(f"Quá trình đồng bộ cấu trúc file vật lý hoàn tất: {output_md_path}")
-
+            f.write(md)
+        logger.info(f"Hoàn tất lưu trữ cấu trúc: {output_md_path}")
+        
+    def shutdown(self):
+        """Giải phóng tài nguyên ThreadPool khi tắt ứng dụng API."""
+        self.executor.shutdown(wait=True)
 
 @register(".pdf")
 def pdf_to_markdown(file_path: str | Path, output_dir: str) -> str:
     os.makedirs(output_dir, exist_ok=True)
     base_name = Path(file_path).stem
     output_md_path = os.path.join(output_dir, f"{base_name}.md")
-    
     engine = LocalCoreEngine()
-    markdown_result = engine.extract_markdown_string(str(file_path), output_dir=output_dir)
     
-    with open(output_md_path, "w", encoding="utf-8") as f:
-        f.write(markdown_result)
+    # Kích hoạt luồng chạy async khép kín cho tương thích môi trường sync registry
+    loop = asyncio.get_event_loop()
+    if loop.is_running():
+        md = loop.run_until_complete(engine.extract_markdown_string_async(str(file_path), output_dir=output_dir))
+    else:
+        md = asyncio.run(engine.extract_markdown_string_async(str(file_path), output_dir=output_dir))
         
-    return markdown_result
-
+    with open(output_md_path, "w", encoding="utf-8") as f:
+        f.write(md)
+    engine.shutdown()
+    return md
 
 if __name__ == "__main__":
-    test_pdf = "document.pdf"
-    output_file = "output.md"
-
-    if os.path.exists(test_pdf):
+    import sys
+    target = sys.argv[1] if len(sys.argv) > 1 else "document.pdf"
+    out = sys.argv[2] if len(sys.argv) > 2 else "output.md"
+    if os.path.exists(target):
         core_engine = LocalCoreEngine()
-        core_engine.convert_pdf_to_markdown(test_pdf, output_file)
+        asyncio.run(core_engine.convert_pdf_to_markdown_async(target, out))
+        core_engine.shutdown()
     else:
-        logger.warning(
-            f"Hệ thống không tìm thấy tệp tin mẫu '{test_pdf}' nhằm mục đích khởi chạy thử nghiệm."
-        )
+        logger.warning(f"Không tìm thấy tệp tin đầu vào: {target}")

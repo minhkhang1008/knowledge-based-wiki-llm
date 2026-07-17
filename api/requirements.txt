@@ -118,3 +118,5 @@ xlsxwriter==3.2.9
 yarl==1.24.2
 mammoth>=1.6.0
 pdfplumber>=0.10.0
+pymupdf>=1.24.0
+pytesseract==0.3.13
