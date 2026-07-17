@@ -8,6 +8,7 @@ from app.services.document_parser.converter_registry import get_converter
 import app.services.document_parser.docx_converter
 import app.services.document_parser.excel_converter
 import app.services.document_parser.pptx_core
+import app.services.document_parser.pdf_converter
 
 class DocumentParserPipeline:
     def __init__(self, output_base_dir: str = "storage/extracted_data"):
