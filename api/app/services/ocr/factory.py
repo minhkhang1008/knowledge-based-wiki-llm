@@ -1,5 +1,6 @@
 import os
 import logging
+import threading
 from app.services.ocr.base import BaseOCREngine
 
 logger = logging.getLogger("ocr.factory")
@@ -8,27 +9,25 @@ logger = logging.getLogger("ocr.factory")
 class OCRFactory:
     """
     Factory tạo OCR engine dựa trên biến môi trường OCR_ENGINE_TYPE.
-    Mặc định dùng EasyOCR.
-
-    Để đổi engine, set trong .env:
-        OCR_ENGINE_TYPE=easyocr    # mặc định
-        OCR_ENGINE_TYPE=tesseract  # fallback
+    Mặc định dùng EasyOCR. Thread-safe singleton.
     """
 
-    _instance: BaseOCREngine | None = None  # singleton cache
+    _instance: BaseOCREngine | None = None
+    _lock = threading.Lock()  # thread-safe init
 
     @staticmethod
     def get_engine() -> BaseOCREngine:
-        """
-        Trả về OCR engine singleton.
-        Engine chỉ được khởi tạo một lần trong vòng đời ứng dụng
-        để tránh load lại model mỗi request.
-        """
+        """Trả về OCR engine singleton. Thread-safe."""
         if OCRFactory._instance is not None:
             return OCRFactory._instance
 
-        engine_type = os.getenv("OCR_ENGINE_TYPE", "easyocr").lower()
-        logger.info(f"Khởi tạo OCR engine: {engine_type}")
+        with OCRFactory._lock:
+            # Double-checked locking
+            if OCRFactory._instance is not None:
+                return OCRFactory._instance
+
+            engine_type = os.getenv("OCR_ENGINE_TYPE", "easyocr").lower()
+            logger.info(f"Khởi tạo OCR engine: {engine_type}")
 
         if engine_type == "easyocr":
             from app.services.ocr.easyocr_engine import EasyOCREngine

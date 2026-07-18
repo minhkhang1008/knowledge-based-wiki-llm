@@ -4,7 +4,7 @@ import logging
 from enum import Enum
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional, TypeVar
+from typing import Dict, List, Tuple, Optional
 from collections import Counter, defaultdict
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
@@ -17,8 +17,6 @@ logging.basicConfig(
     handlers=[logging.StreamHandler()]
 )
 logger = logging.getLogger("pdf_converter")
-
-T = TypeVar("T")
 
 class BlockType(Enum):
     HEADER_1 = "h1"
@@ -52,6 +50,7 @@ class DocumentBlock:
     bbox: BoundingBox
     content: str
     confidence: float = 1.0
+    ocr_text: str = ""  # OCR text từ ảnh (chỉ dùng với BlockType.IMAGE)
 
 @dataclass
 class TextLine:
@@ -154,9 +153,10 @@ class PDFTextCleaner:
             return PDFTextCleaner._CID_MAP.get(m.group(1), "")
         text = re.sub(r"\(cid:(\d+)\)", replace_cid, text)
 
-        # Ký hiệu bị encode sai phổ biến trong datasheet điện tử
-        text = re.sub(r"(?<!\w)kW(?!\w)", "kΩ", text)
-        text = re.sub(r"(?<!\w)MW(?!\w)", "MΩ", text)
+        # Ký hiệu điện tử bị encode sai — chỉ convert khi đứng sau số
+        # để tránh nhầm với đơn vị kilowatt/megawatt trong tài liệu năng lượng
+        text = re.sub(r"(\d)\s*kW(?!\w)", r"\1 kΩ", text)   # 100kW → 100 kΩ (chỉ sau số)
+        text = re.sub(r"(\d)\s*MW(?!\w)", r"\1 MΩ", text)   # 10MW → 10 MΩ (chỉ sau số)
         text = re.sub(r"\b(\d+(?:\.\d+)?)\s*W\b", r"\1 Ω", text)
         text = re.sub(r"\b(\d+(?:\.\d+)?)\s*m\s*F\b", r"\1 µF", text)
         text = text.replace("»", "≈").replace("«", "≈")
@@ -289,6 +289,17 @@ class MarkdownCompiler:
         markdown_lines: List[str] = []
         for block in blocks:
             cleaned_content = PDFTextCleaner.clean(block.content.strip())
+
+            # IMAGE không cần content — kiểm tra ocr_text riêng
+            if block.block_type == BlockType.IMAGE:
+                if block.ocr_text:
+                    markdown_lines.append(f'\n<img>\n"""\n{block.ocr_text}\n"""\n')
+                elif cleaned_content:
+                    markdown_lines.append(f"\n<img> {cleaned_content}\n")
+                else:
+                    markdown_lines.append("\n<img>\n")
+                continue
+
             if not cleaned_content:
                 continue
             if block.block_type == BlockType.HEADER_1:
@@ -304,9 +315,6 @@ class MarkdownCompiler:
                     markdown_lines.append(f"* {cleaned_content}\n")
             elif block.block_type == BlockType.TABLE:
                 markdown_lines.append(f"\n{cleaned_content}\n")
-            elif block.block_type == BlockType.IMAGE:
-                image_filename = os.path.basename(block.content)
-                markdown_lines.append(f"\n![image](images/{image_filename})\n")
             else:
                 markdown_lines.append(f"{cleaned_content}\n")
         return "".join(markdown_lines)
@@ -766,6 +774,7 @@ class LocalPDFParser:
         acc_y: float = band_y1
 
         def flush():
+            nonlocal acc_is_header, acc_y
             if acc:
                 merged.append({"text": " ".join(acc), "is_header": acc_is_header, "y": acc_y})
                 acc.clear()
@@ -934,7 +943,13 @@ class LocalPDFParser:
                         max_font_size, bold_font_names,
                     ))
             elif band["type"] == "exclusion":
-                for el in sorted(band["elements"], key=lambda e: e["data"].bbox[0] if e["type"] == "table" else e["data"]["x0"]):
+                for el in sorted(
+                    band["elements"],
+                    key=lambda e: (
+                        e["data"].bbox[0] if e["type"] == "table" and e["data"].bbox is not None
+                        else e["data"]["x0"]
+                    )
+                ):
                     if el["type"] == "table":
                         raw = el["data"].extract()
                         if raw:
@@ -943,37 +958,67 @@ class LocalPDFParser:
                                 bbox=BoundingBox(*el["data"].bbox),
                                 content=TableConverter.to_markdown(raw),
                             ))
-                    elif el["type"] == "image" and image_output_dir:
-                        os.makedirs(image_output_dir, exist_ok=True)
+                    elif el["type"] == "image":
                         img = el["data"]
                         bbox = (img["x0"], img["top"], img["x1"], img["bottom"])
-                        block_counter_ref[0] += 1
-                        name = f"page_{page_idx + 1}_img_{block_counter_ref[0]}.png"
-                        path = os.path.join(image_output_dir, name)
+                        safe_bbox = (
+                            max(0.0, bbox[0]),
+                            max(0.0, bbox[1]),
+                            min(float(page.width), bbox[2]),
+                            min(float(page.height), bbox[3]),
+                        )
+
+                        # Luôn OCR ảnh để lấy nội dung text
+                        ocr_text = ""
                         try:
-                            safe_bbox = (
-                                max(0.0, bbox[0]),
-                                max(0.0, bbox[1]),
-                                min(float(page.width), bbox[2]),
-                                min(float(page.height), bbox[3]),
-                            )
-                            page.crop(safe_bbox).to_image(resolution=150).save(path)
-                            col_blocks.append(DocumentBlock(
-                                block_type=BlockType.IMAGE,
-                                bbox=BoundingBox(*bbox), content=path,
-                            ))
+                            pil_img = page.crop(safe_bbox).to_image(resolution=150).original
+                            from app.services.ocr.ocr_utils import ocr_image_to_text
+                            ocr_text = ocr_image_to_text(pil_img)
                         except Exception as e:
-                            logger.warning(f"Không thể lưu trữ tệp tin hình ảnh {path}: {e}")
+                            logger.debug(f"Không thể OCR ảnh: {e}")
+
+                        # Lưu file ảnh chỉ khi có image_output_dir
+                        saved_path = ""
+                        if image_output_dir:
+                            os.makedirs(image_output_dir, exist_ok=True)
+                            block_counter_ref[0] += 1
+                            name = f"page_{page_idx + 1}_img_{block_counter_ref[0]}.png"
+                            saved_path = os.path.join(image_output_dir, name)
+                            try:
+                                page.crop(safe_bbox).to_image(resolution=150).save(saved_path)
+                            except Exception as e:
+                                logger.warning(f"Không thể lưu ảnh {saved_path}: {e}")
+                                saved_path = ""
+
+                        col_blocks.append(DocumentBlock(
+                            block_type=BlockType.IMAGE,
+                            bbox=BoundingBox(*bbox),
+                            content=saved_path,   # "" nếu không lưu
+                            ocr_text=ocr_text,    # "" nếu OCR không ra gì
+                        ))
         return col_blocks
 
-    async def parse_async(self, pdf_path: str, output_dir: Optional[str] = None) -> List[DocumentBlock]:
+    async def parse_async(
+        self,
+        pdf_path: str,
+        output_dir: Optional[str] = None,
+        image_output_dir: Optional[str] = None,
+    ) -> List[DocumentBlock]:
+        """
+        Args:
+            pdf_path: Đường dẫn file PDF đầu vào.
+            output_dir: Thư mục chứa file .md và các file phụ. Không dùng để quyết định lưu ảnh.
+            image_output_dir: Nếu None → không lưu ảnh, chỉ OCR text từ ảnh.
+                              Nếu có path → lưu ảnh vào thư mục này VÀ OCR.
+        """
         try:
             import pdfplumber
         except ImportError as exc:
             raise ImportError("Vui lòng cài đặt thư viện phân tích cấu trúc: pip install pdfplumber") from exc
 
         extracted_blocks: List[DocumentBlock] = []
-        image_output_dir = os.path.join(output_dir, "images") if output_dir else None
+        # image_output_dir = None → không lưu ảnh, chỉ OCR nội dung
+        # image_output_dir = "path/images" → lưu ảnh VÀ OCR
         img_counter = [0]
 
         # Mở pymupdf song song với pdfplumber để lấy text chất lượng cao
@@ -1043,17 +1088,44 @@ class LocalCoreEngine:
         self.executor = ThreadPoolExecutor(max_workers=4)
         self.pdf_parser = LocalPDFParser(self.sorter, self.executor)
 
-    async def extract_markdown_string_async(self, pdf_path: str, output_dir: Optional[str] = None) -> str:
+    async def extract_markdown_string_async(
+        self,
+        pdf_path: str,
+        output_dir: Optional[str] = None,
+        image_output_dir: Optional[str] = None,
+    ) -> str:
+        """
+        Args:
+            image_output_dir: None (mặc định) → không lưu ảnh, chỉ OCR.
+                              Truyền path → lưu ảnh vào thư mục đó.
+        """
         if not os.path.exists(pdf_path):
             raise FileNotFoundError(f"Không tìm thấy file nguồn yêu cầu: {pdf_path}")
-        parsed_blocks = await self.pdf_parser.parse_async(pdf_path, output_dir=output_dir)
+        parsed_blocks = await self.pdf_parser.parse_async(
+            pdf_path,
+            output_dir=output_dir,
+            image_output_dir=image_output_dir,
+        )
         return MarkdownCompiler.compile(parsed_blocks)
 
-    async def convert_pdf_to_markdown_async(self, pdf_path: str, output_md_path: str) -> None:
+    async def convert_pdf_to_markdown_async(
+        self,
+        pdf_path: str,
+        output_md_path: str,
+        image_output_dir: Optional[str] = None,
+    ) -> None:
+        """
+        Args:
+            image_output_dir: None → không lưu ảnh. Có path → lưu ảnh vào path đó.
+        """
         logger.info(f"Khởi động tiến trình chuyển đổi: {pdf_path}")
         output_dir = os.path.dirname(output_md_path) or "."
         os.makedirs(output_dir, exist_ok=True)
-        md = await self.extract_markdown_string_async(pdf_path, output_dir=output_dir)
+        md = await self.extract_markdown_string_async(
+            pdf_path,
+            output_dir=output_dir,
+            image_output_dir=image_output_dir,
+        )
         with open(output_md_path, "w", encoding="utf-8") as f:
             f.write(md)
         logger.info(f"Hoàn tất lưu trữ cấu trúc: {output_md_path}")
@@ -1064,30 +1136,45 @@ class LocalCoreEngine:
 
 @register(".pdf")
 def pdf_to_markdown(file_path: str | Path, output_dir: str) -> str:
+    """
+    Được gọi bởi DocumentParserPipeline.
+    Không lưu ảnh theo mặc định — chỉ OCR ảnh để lấy text.
+    """
     os.makedirs(output_dir, exist_ok=True)
     base_name = Path(file_path).stem
     output_md_path = os.path.join(output_dir, f"{base_name}.md")
     engine = LocalCoreEngine()
-    
-    # Kích hoạt luồng chạy async khép kín cho tương thích môi trường sync registry
-    loop = asyncio.get_event_loop()
-    if loop.is_running():
-        md = loop.run_until_complete(engine.extract_markdown_string_async(str(file_path), output_dir=output_dir))
-    else:
-        md = asyncio.run(engine.extract_markdown_string_async(str(file_path), output_dir=output_dir))
-        
+    try:
+        md = asyncio.run(engine.extract_markdown_string_async(
+            str(file_path),
+            output_dir=output_dir,
+            image_output_dir=None,  # mặc định không lưu ảnh
+        ))
+    finally:
+        engine.shutdown()
     with open(output_md_path, "w", encoding="utf-8") as f:
         f.write(md)
-    engine.shutdown()
     return md
+
 
 if __name__ == "__main__":
     import sys
+    # Cách dùng:
+    #   python -m app.services.document_parser.pdf_converter input.pdf output.md
+    #       → không lưu ảnh, chỉ OCR ảnh → ghi <img> """text"""
+    #
+    #   python -m app.services.document_parser.pdf_converter input.pdf output.md ./images
+    #       → lưu ảnh vào ./images/, OCR rồi ghi <img> """text""" hoặc <img> đường_dẫn
     target = sys.argv[1] if len(sys.argv) > 1 else "document.pdf"
-    out = sys.argv[2] if len(sys.argv) > 2 else "output.md"
+    out    = sys.argv[2] if len(sys.argv) > 2 else "output.md"
+    img_dir = sys.argv[3] if len(sys.argv) > 3 else None  # optional
+
     if os.path.exists(target):
         core_engine = LocalCoreEngine()
-        asyncio.run(core_engine.convert_pdf_to_markdown_async(target, out))
+        asyncio.run(core_engine.convert_pdf_to_markdown_async(
+            target, out, image_output_dir=img_dir
+        ))
         core_engine.shutdown()
     else:
+        logger.warning(f"Không tìm thấy tệp tin đầu vào: {target}")
         logger.warning(f"Không tìm thấy tệp tin đầu vào: {target}")

@@ -32,7 +32,6 @@ pyproject.toml
 uv.lock
 
 # Output/test files
-*.md
 !README.md
 
 # Test data PDFs (tuỳ chọn - uncomment nếu muốn exclude)

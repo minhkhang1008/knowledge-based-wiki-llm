@@ -51,38 +51,6 @@ class PptxImageExtractor:
 
     @staticmethod
     def _run_ocr(image_path: str) -> str:
-        """
-        Chạy OCR trên file ảnh, trả về text nhận dạng được (hoặc "" nếu không có engine).
-        Dùng OCRFactory để tái sử dụng engine singleton đã khởi tạo.
-        """
-        try:
-            from PIL import Image as PILImage
-            from app.services.ocr.factory import OCRFactory
-
-            engine = OCRFactory.get_engine()
-            pil_img = PILImage.open(image_path).convert("RGB")
-            words = engine.extract_words(pil_img, scale=1.0)
-
-            if not words:
-                return ""
-
-            # Gom words theo dòng (y gần nhau) rồi nối thành text
-            from collections import defaultdict
-            line_map = defaultdict(list)
-            for w in words:
-                y_key = round(float(w.get("top", 0)) / 5) * 5  # bucket 5px
-                line_map[y_key].append(w["text"])
-
-            lines = [
-                " ".join(line_map[y])
-                for y in sorted(line_map.keys())
-                if line_map[y]
-            ]
-            return "\n> ".join(lines)
-
-        except ImportError:
-            logger.debug("OCR engine không khả dụng, bỏ qua OCR cho ảnh PPTX")
-            return ""
-        except Exception as e:
-            logger.warning(f"OCR lỗi tại {image_path}: {e}")
-            return ""
+        """Chạy OCR trên file ảnh, dùng shared utility."""
+        from app.services.ocr.ocr_utils import ocr_image_file_to_text
+        return ocr_image_file_to_text(image_path)
