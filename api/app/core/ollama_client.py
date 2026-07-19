@@ -37,14 +37,14 @@ async def generate_chat(prompt: str):
             'content' : prompt
       }]
       try:
-            response = await client.chat(model = "llama3.2:1b", messages = message, options = {'temperature': 0.1})
+            response = await client.chat(model = "llama3.2", messages = message, options = {'temperature': 0.0})
 
             return response['message']['content'] 
       except ollama.ResponseError as e:
                   print('Error:', e.error)
                   if (e.status_code == 404):
-                        await client.pull(model = "llama3.2:1b")  
-                        response = await client.chat(model = "llama3.2:1b", messages = message, options = {'temperature': 0.1})
+                        await client.pull(model = "llama3.2")  
+                        response = await client.chat(model = "llama3.2", messages = message, options = {'temperature': 0.0})
                         
                         return response['message']['content'] 
                   

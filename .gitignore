@@ -1,5 +1,11 @@
 # Python
 __pycache__/
+.pytest_cache
+.venv/
+venv/
+ENV/
+env/
+
 *.pyc
 *.pyo
 *.pyd
