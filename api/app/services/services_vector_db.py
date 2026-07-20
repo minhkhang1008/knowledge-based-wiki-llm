@@ -51,8 +51,8 @@ def search_similar_chunks(query_embedding: list[float], top_k: int = 5) -> list[
         output.append({
             "text": doc,
             "article_id": meta_dict.get("article_id", "Unknown"),  # Dùng .get() để tránh lỗi KeyError
-            "page_number": meta_dict.get("page_number", None),                  # Trả về None hoặc số trang mặc định nếu thiếu
-            "distance": distance                                   # (Tuỳ chọn) Trả về thêm distance để dễ debug
+            "source_file": meta_dict.get("source_file", "Unknown"),
+            "page_number": meta_dict.get("page_number", None)                  # Trả về None hoặc số trang mặc định nếu thiếu
         })
         
     return output
