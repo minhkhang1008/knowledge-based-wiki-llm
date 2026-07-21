@@ -1,0 +1,2 @@
+class AIModelOfflineException(Exception): 
+    pass
