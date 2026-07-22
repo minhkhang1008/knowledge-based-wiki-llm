@@ -5,19 +5,12 @@ from app.services.ocr.base import BaseOCREngine
 
 logger = logging.getLogger("ocr.factory")
 
-
 class OCRFactory:
-    """
-    Factory tạo OCR engine dựa trên biến môi trường OCR_ENGINE_TYPE.
-    Mặc định dùng EasyOCR. Thread-safe singleton.
-    """
-
     _instance: BaseOCREngine | None = None
-    _lock = threading.Lock()  # thread-safe init
+    _lock = threading.Lock()
 
     @staticmethod
     def get_engine() -> BaseOCREngine:
-        """Trả về OCR engine singleton. Thread-safe."""
         if OCRFactory._instance is not None:
             return OCRFactory._instance
 
@@ -29,28 +22,24 @@ class OCRFactory:
             engine_type = os.getenv("OCR_ENGINE_TYPE", "easyocr").lower()
             logger.info(f"Khởi tạo OCR engine: {engine_type}")
 
-        if engine_type == "easyocr":
-            from app.services.ocr.easyocr_engine import EasyOCREngine
-            OCRFactory._instance = EasyOCREngine(
-                languages=["en", "vi"],
-                gpu=os.getenv("OCR_USE_GPU", "false").lower() == "true",
-            )
+            # ĐÃ SỬA: Thụt lề toàn bộ khối IF này vào bên trong `with _lock:`
+            if engine_type == "easyocr":
+                from app.services.ocr.easyocr_engine import EasyOCREngine
+                OCRFactory._instance = EasyOCREngine(
+                    languages=["en", "vi"],
+                    gpu=os.getenv("OCR_USE_GPU", "false").lower() == "true",
+                )
 
-        elif engine_type == "tesseract":
-            from app.services.ocr.tesseract_engine import TesseractEngine
-            OCRFactory._instance = TesseractEngine(
-                lang=os.getenv("TESSERACT_LANG", "eng+vie"),
-            )
+            elif engine_type == "tesseract":
+                from app.services.ocr.tesseract_engine import TesseractEngine
+                OCRFactory._instance = TesseractEngine(
+                    lang=os.getenv("TESSERACT_LANG", "eng+vie"),
+                )
 
-        else:
-            raise ValueError(
-                f"OCR_ENGINE_TYPE='{engine_type}' không hợp lệ. "
-                "Các giá trị được hỗ trợ: 'easyocr', 'tesseract'."
-            )
+            else:
+                raise ValueError(
+                    f"OCR_ENGINE_TYPE='{engine_type}' không hợp lệ. "
+                    "Các giá trị được hỗ trợ: 'easyocr', 'tesseract'."
+                )
 
         return OCRFactory._instance
-
-    @staticmethod
-    def reset():
-        """Reset singleton — dùng cho testing."""
-        OCRFactory._instance = None
