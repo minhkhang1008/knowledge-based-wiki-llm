@@ -1,0 +1,12 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./images:/app/images
+      - ./uploads:/app/uploads
+    env_file:
+      - path: .env
+        required: false      # không crash nếu .env chưa có
+    restart: unless-stopped
