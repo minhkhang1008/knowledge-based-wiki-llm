@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from app.api.v1 import articles, qa, search
+from api.app.api.v1 import qa_log
+from app.api.v1 import articles, search
 from app.core.exceptions import AIModelOfflineException
 
 app = FastAPI(
@@ -10,7 +11,7 @@ app = FastAPI(
 )
 
 app.include_router(articles.router, prefix="/api/v1/articles", tags=["Articles"])
-app.include_router(qa.router, tags=["QA"])
+app.include_router(qa_log.router, tags=["QA"])
 app.include_router(search.router, tags=["Search"])
 
 @app.get("/")

@@ -1,22 +1,17 @@
+from sqlalchemy import Column, Integer, String, JSON, DateTime
 from datetime import datetime
-from app.core.database import Base, get_db
-from sqlalchemy import Column,String,DateTime,select
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Optional
-from fastapi import Depends
-class Article(Base):
-    __tablename__ = "articles"
-    id = Column(String, primary_key=True)
-    title = Column(String, nullable=False)
-    content = Column(String, nullable=False)
-    created_at = Column(DateTime, default=datetime.now)
-async def get_all_articles(session: AsyncSession,skip: int, limit: int, search: Optional[str] = None):
-    stmt = select(Article).offset(skip).limit(limit)
-    if search:
-        stmt = stmt.where(Article.title.like(f"%{search}%"))
-    result = await session.execute(stmt)
-    return result.scalars().all()
-async def get_article_by_id(session: AsyncSession, article_id: str):
-    stmt = select(Article).where(Article.id == article_id)
-    result = await session.execute(stmt)
-    return  result.scalar_one_or_none()
+from api.app.core.database import Base
+
+class QALog(Base):
+    __tablename__ = "qa_logs"
+    id = Column(Integer, primary_key=True)
+    question= Column(String, nullable= False)
+    answer = Column(String, nullable= False)
+    sources = Column(JSON) 
+    created_at = Column(DateTime, default= datetime.now)
+    
+async def log_qa_interaction(session: AsyncSession, question: str, answer: str, source: list[dict]):     
+    temporary = QALog(question=question, answer=answer, source =source)
+    session.add(temporary)
+    await session.commit()
