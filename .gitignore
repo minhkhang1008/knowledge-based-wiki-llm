@@ -27,7 +27,7 @@ chroma_db/
 
 # IDE
 .vscode/
-
+tesing.py
 # OS
 .DS_Store
 Thumbs.db
