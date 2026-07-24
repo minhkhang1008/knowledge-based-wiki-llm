@@ -15,6 +15,7 @@ from uuid import uuid4
 from app.models.article import Article
 from sqlalchemy.ext.asyncio import AsyncSession 
 from sqlalchemy import select, update, delete
+from sqlalchemy.exc import IntegrityError
 
 class DuplicateDocumentError(Exception):
     """Raised when creating an Article with an existing document_id."""
@@ -77,12 +78,9 @@ async def create_article(
     session: AsyncSession,
     data: Any,
 ) -> Article:
+    payload = _to_dict(data) 
+    document_id = str(payload["document_id"])
     try: 
-        payload = _to_dict(data)
-        document_id = str(payload["document_id"])
-        existing = await get_article_by_document_id(session, document_id)
-        if existing is not None:
-            raise DuplicateDocumentError(f"document with ID: {document_id} is already exist")
         now = datetime.now(timezone.utc)
         article = Article(
             id=str(uuid4()),
@@ -94,11 +92,15 @@ async def create_article(
             updated_at=now,
         )
         session.add(article)
+        await session.flush()
         await session.commit()
+        return article
+    except IntegrityError:
+        await session.rollback()
+        raise DuplicateDocumentError(f"document with ID: {document_id} is already exist")
     except Exception: 
         await session.rollback()
         raise  
-    return article
 
 
 async def update_article(
@@ -107,14 +109,11 @@ async def update_article(
     data: Any,
 ) -> Article | None:
     try:
-        article = await get_article_by_id(session, article_id)
-        if article is None:
-            return None
         payload = _to_dict(data)
         stmt = update(Article).where(Article.id == article_id).values(
-            title= payload.get("title", article.title),
-            content= payload.get("content", article.content),
-            source_file= payload.get("source_file", article.source_file),
+            title= payload.get("title", Article.title),
+            content= payload.get("content", Article.content),
+            source_file= payload.get("source_file", Article.source_file),
             updated_at= datetime.now(timezone.utc),
         ).returning(Article)
         result = await session.execute(stmt)
