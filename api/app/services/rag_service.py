@@ -14,7 +14,7 @@ async def execute_llm_generation(prompt: str, raw_chunks: list[dict]) -> dict:
             }
 
       total_chunks = len(raw_chunks)
-      valid_chunk_labels = [range(1, total_chunks + 1)]
+      valid_chunk_labels = [i for i in range(1, total_chunks + 1)]
 
       found_labels = re.findall(r"\[S(\d+)\]", raw_answer)
 
@@ -50,6 +50,11 @@ async def process_rag_pipeline(
       embedded_text = await generate_embedding(question)
       document = search_similar_chunks(embedded_text, top_k=5)
 
+      if (chat_history != [] and chat_history != None):
+            recent_history = [chat_history[-1]]
+      else:
+            recent_history = []
+
       if not document:
             return {
                   "answer": "Tôi không tìm thấy thông tin này trong tài liệu.",
@@ -57,6 +62,6 @@ async def process_rag_pipeline(
                   "no_answer_reason": "insufficient_context",
             }
 
-      prompt = build_rag_prompt(question, document)
+      prompt = build_rag_prompt(question, document, recent_history)
 
       return await execute_llm_generation(prompt, document)
