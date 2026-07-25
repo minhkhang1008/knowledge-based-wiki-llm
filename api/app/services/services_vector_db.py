@@ -12,6 +12,8 @@ client = chromadb.PersistentClient(path=persist_path)
 # Lấy hoặc tạo collection "chunks"
 collection = client.get_or_create_collection("chunks")
 
+# Export để caller (router/API layer) dùng làm default top_k khi build request, tránh hardcode số 5 rải rác nhiều nơi
+# Không dùng làm default trong chữ ký hàm vì top_k=5 là public interface cố định
 RAG_TOP_K = int(os.getenv("RAG_TOP_K", 5))
 RAG_DISTANCE_THRESHOLD = float(os.getenv("RAG_DISTANCE_THRESHOLD", 0.7))
 
