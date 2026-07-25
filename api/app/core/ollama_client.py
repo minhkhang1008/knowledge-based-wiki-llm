@@ -5,19 +5,19 @@ from ollama import AsyncClient
 
 client = AsyncClient()
 
-class OLLAMA_Connection(Exception):
+class OllamaConnectionError(Exception):
       # Bắt lỗi chưa bật OLLAMA
       pass
 
-class Request_Timeout(Exception):
+class RequestTimeoutError(Exception):
       # Bắt lỗi Timeout
       pass
 
-class Inexist_Model(Exception):
+class ModelNotFoundError(Exception):
       # Bắt lỗi Model hong tồn tại
       pass
 
-class Response_Error(Exception):
+class InvalidResponseError(Exception):
       # Bắt lỗi response hong hợp lệ
       pass
 
@@ -25,31 +25,32 @@ class Response_Error(Exception):
 async def chat():
       try:
             await client.list()
-      except Exception as e:
-            raise OLLAMA_Connection("Chưa mở Ollama")
+      except (httpx.ConnectError, httpx.TimeoutException):
+            raise OllamaConnectionError("Chưa mở Ollama hoặc mất kết nối server")
+      except ollama.ResponseError:
+            raise OllamaConnectionError("Ollama phản hồi lỗi")
+      except Exception:
+            raise OllamaConnectionError("Lỗi không xác định khi kết nối Ollama")
       
 # Hàm Embedding (Biến chữ thành số)
 async def generate_embedding(text: str) -> list[float]:
       try:
             response = await client.embeddings(model = "nomic-embed-text", prompt = text)
-
-            if (response["embedding"] == [] or response["embedding"] == None):
-                  raise Response_Error("Response không hợp lệ")
-            
-            return response['embedding']
-      
       except ollama.ResponseError as e:
             if (e.status_code == 404):
-                  raise Inexist_Model("Model không tồn tại. Hãy chạy lệnh 'ollama run nomic-embed-text'")
-            
-            raise Response_Error("Response không hợp lệ")
-            
+                  raise ModelNotFoundError("Model 'nomic-embed-text' không tồn tại. Vui lòng chạy lệnh: 'ollama pull nomic-embed-text'")
+            raise InvalidResponseError("Response không hợp lệ")
       except httpx.ConnectError:
-            raise OLLAMA_Connection("Ollama mất kết nối") 
-            
+            raise OllamaConnectionError("Ollama ngắt kết nối")
       except httpx.TimeoutException:
-            raise Request_Timeout("Yêu cầu hết thời gian chờ")
+            raise RequestTimeoutError("Yêu cầu sinh embedding text hết thời gian chờ")
 
+      content = response.get('embedding')
+      if (content == None or content == []):
+            raise InvalidResponseError("Response không hợp lệ")
+      else:
+            return content
+      
 # Hàm Chat (Sinh câu trả lời)
 async def generate_chat(prompt: str) -> str:
       message = [{
@@ -58,30 +59,26 @@ async def generate_chat(prompt: str) -> str:
       }]
       try:
             response = await client.chat(model = "llama3.2", messages = message, options = {'temperature': 0.0})
-            content = response['message']['content']
-
-            if (content == "" or content == None):
-                  raise Response_Error("Response không hợp lệ")
-            
-            return content 
       
       except ollama.ResponseError as e:
             if (e.status_code == 404):
-                  raise Inexist_Model("Model không tồn tại. Hãy chạy lệnh 'ollama run llama3.2'")
-            raise Response_Error("Response không hợp lệ")
+                  raise ModelNotFoundError("Model không tồn tại. Hãy chạy lệnh 'ollama pull llama3.2'")
+            raise InvalidResponseError("Response không hợp lệ")
       
       except httpx.ConnectError:
-            raise OLLAMA_Connection("Ollama mất kết nối") 
+            raise OllamaConnectionError("Ollama mất kết nối") 
       
       except httpx.TimeoutException:
-            raise Request_Timeout("Yêu cầu hết thời gian chờ")
+            raise RequestTimeoutError("Yêu cầu hết thời gian chờ")
       
-                      
+      content = response.get("message", {}).get("content")
+      if (content == None or content == ''):
+            raise InvalidResponseError("Response không hợp lệ")
+      else:
+            return content
 
 async def main():
       await chat()
 
 if __name__ == "__main__":
       asyncio.run(main())
-
-      
