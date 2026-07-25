@@ -50,17 +50,17 @@ async def process_rag_pipeline(
       embedded_text = await generate_embedding(question)
       document = search_similar_chunks(embedded_text, top_k=5)
 
-      if (chat_history != [] and chat_history != None):
-            recent_history = [chat_history[-1]]
-      else:
-            recent_history = []
-
       if not document:
             return {
                   "answer": "Tôi không tìm thấy thông tin này trong tài liệu.",
                   "sources": [],
                   "no_answer_reason": "insufficient_context",
             }
+      
+      if (chat_history != [] and chat_history != None):
+            recent_history = [chat_history[-1]]
+      else:
+            recent_history = []
 
       prompt = build_rag_prompt(question, document, recent_history)
 
