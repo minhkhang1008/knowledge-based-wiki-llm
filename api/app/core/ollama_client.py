@@ -70,7 +70,7 @@ async def generate_chat(prompt: str) -> str:
             raise RequestTimeoutError("Yêu cầu hết thời gian chờ")
       
       content = response.get("message", {}).get("content")
-      if (content == None or content == ''):
+      if not content or not content.strip():
             raise InvalidResponseError("Response không hợp lệ")
       else:
             return content
