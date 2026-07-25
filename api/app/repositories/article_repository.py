@@ -131,7 +131,7 @@ async def delete_article(
     try: 
         stmt = delete(Article).where(Article.id == article_id).returning(Article.id)
         result = await session.execute(stmt)
-        if result.scalar_one_or_none is None:
+        if result.scalar_one_or_none() is None:
             return False
         await session.commit()
         return True
@@ -149,5 +149,5 @@ async def upsert_article_by_document_id(
     existing = await get_article_by_document_id(session, document_id)
     if existing is None:
         return await create_article(session, payload)
-    article_id = str(Article.id)
+    article_id = str(existing.id)
     return await update_article(session, article_id, payload) 
