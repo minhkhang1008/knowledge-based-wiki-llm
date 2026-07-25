@@ -1,13 +1,8 @@
-import ollama
-import httpx
-import asyncio
+import ollama, httpx, asyncio
 from ollama import AsyncClient
+from app.core.exceptions import AIModelOfflineException
 
 client = AsyncClient()
-
-class OllamaConnectionError(Exception):
-      # Bắt lỗi chưa bật OLLAMA
-      pass
 
 class RequestTimeoutError(Exception):
       # Bắt lỗi Timeout
@@ -26,11 +21,11 @@ async def chat():
       try:
             await client.list()
       except (httpx.ConnectError, httpx.TimeoutException):
-            raise OllamaConnectionError("Chưa mở Ollama hoặc mất kết nối server")
+            raise AIModelOfflineException("Chưa mở Ollama hoặc mất kết nối server")
       except ollama.ResponseError:
-            raise OllamaConnectionError("Ollama phản hồi lỗi")
+            raise AIModelOfflineException("Ollama phản hồi lỗi")
       except Exception:
-            raise OllamaConnectionError("Lỗi không xác định khi kết nối Ollama")
+            raise AIModelOfflineException("Lỗi không xác định khi kết nối Ollama")
       
 # Hàm Embedding (Biến chữ thành số)
 async def generate_embedding(text: str) -> list[float]:
@@ -41,15 +36,18 @@ async def generate_embedding(text: str) -> list[float]:
                   raise ModelNotFoundError("Model 'nomic-embed-text' không tồn tại. Vui lòng chạy lệnh: 'ollama pull nomic-embed-text'")
             raise InvalidResponseError("Response không hợp lệ")
       except httpx.ConnectError:
-            raise OllamaConnectionError("Ollama ngắt kết nối")
+            raise AIModelOfflineException("Ollama ngắt kết nối")
       except httpx.TimeoutException:
             raise RequestTimeoutError("Yêu cầu sinh embedding text hết thời gian chờ")
 
       content = response.get('embedding')
-      if (content == None or content == []):
-            raise InvalidResponseError("Response không hợp lệ")
-      else:
+      if (content != [] and content != None):
+            for embeded_text in content:
+                  if (isinstance(embeded_text, (int, float)) != True):
+                        raise InvalidResponseError("Response không hợp lệ")
             return content
+      else:
+            raise InvalidResponseError("Response không hợp lệ")   
       
 # Hàm Chat (Sinh câu trả lời)
 async def generate_chat(prompt: str) -> str:
@@ -66,7 +64,7 @@ async def generate_chat(prompt: str) -> str:
             raise InvalidResponseError("Response không hợp lệ")
       
       except httpx.ConnectError:
-            raise OllamaConnectionError("Ollama mất kết nối") 
+            raise AIModelOfflineException("Ollama mất kết nối") 
       
       except httpx.TimeoutException:
             raise RequestTimeoutError("Yêu cầu hết thời gian chờ")
