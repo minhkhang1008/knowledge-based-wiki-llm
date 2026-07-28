@@ -40,15 +40,25 @@ async def generate_embedding(text: str) -> list[float]:
       except httpx.TimeoutException:
             raise RequestTimeoutError("Yêu cầu sinh embedding text hết thời gian chờ")
 
-      content = response.get('embedding')
-      if (content != [] and content != None):
+      if response:
+            if (isinstance(response, dict)):
+                  content = response.get("embedding")
+            else:
+                  content = getattr(response, "embedding", None)
+
+            if (isinstance(content, list) == False or not content):
+                  raise InvalidResponseError("Response không hợp lệ")
+            
             for embeded_text in content:
-                  if (isinstance(embeded_text, (int, float)) != True):
+                  if (
+                        isinstance(embeded_text, bool) == True or 
+                        isinstance(embeded_text, (int, float)) != True
+                  ):
                         raise InvalidResponseError("Response không hợp lệ")
             return content
       else:
-            raise InvalidResponseError("Response không hợp lệ")   
-      
+            raise InvalidResponseError("Response không hợp lệ")
+            
 # Hàm Chat (Sinh câu trả lời)
 async def generate_chat(prompt: str) -> str:
       message = [{
@@ -68,12 +78,27 @@ async def generate_chat(prompt: str) -> str:
       
       except httpx.TimeoutException:
             raise RequestTimeoutError("Yêu cầu hết thời gian chờ")
-      
-      content = response.get("message", {}).get("content")
-      if not content or not content.strip():
-            raise InvalidResponseError("Response không hợp lệ")
+
+      if response:
+            if (isinstance(response, dict)):
+                  msg = response.get("message")
+            else:
+                  msg = getattr(response, "message", None)
+
+            if (isinstance(msg, dict)):
+                  content = msg.get("content")
+            else:
+                  content = getattr(msg, "content", None)
+
+            if (isinstance(content, str)):
+                  if not content or not content.strip():
+                        raise InvalidResponseError("Response không hợp lệ")
+                  else:
+                        return content
+            else:
+                  raise InvalidResponseError("Response không hợp lệ")
       else:
-            return content
+            raise InvalidResponseError("Response không hợp lệ")
 
 async def main():
       await chat()
