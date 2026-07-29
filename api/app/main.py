@@ -1,7 +1,10 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from app.api.v1 import articles, qa, search
+from app.api.v1 import articles, qa, search, wiki_articles
 from app.core.exceptions import AIModelOfflineException
+from app.schemas.ErrorResponse import errorResponse
+from app.schemas.ErrorFormat import errorFormat
 
 app = FastAPI(
     title="Knowledge Based Wiki LLM API",
@@ -12,6 +15,7 @@ app = FastAPI(
 app.include_router(articles.router, prefix="/api/v1/articles", tags=["Articles"])
 app.include_router(qa.router, tags=["QA"])
 app.include_router(search.router, tags=["Search"])
+app.include_router(wiki_articles.router, prefix="/api/articles", tags=["Articles"])
 
 @app.get("/")
 def root():
@@ -28,7 +32,25 @@ async def ai_mode_offline_exception(request: Request, exc: AIModelOfflineExcepti
             "message": "Hệ thống AI hiện đang ngoại tuyến, vui lòng liên hệ quản trị viên.",
             "data": None,
             "error": {
-                "code": "AI_ENGINE_OFFLINE"
+                "code": "503 Service Unavailable",
+                "detail" : "AI_ENGINE_OFFLINE"
             }
         }
+    )
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    response = errorResponse(
+        success = False,
+        data = None,
+        message = "Request sai định dạng dữ liệu",
+        error = errorFormat(
+            code = "422 Unprocessable Content",
+            detail = str(exc.errors())
+        )
+    )
+
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        content=response.model_dump()
     )

@@ -16,7 +16,7 @@ router = APIRouter()
 # class SearchRequest(BaseModel):
 #     query: str = Field(..., min_length=1, description="Câu truy vấn tìm kiếm ngữ nghĩa")
 
-@router.post("/api/search", response_model=searchResponse)
+@router.get("/api/search", response_model=searchResponse)
 async def search(request: searchData):
     try:
         chunks = await semantic_search_logic(request.query)
