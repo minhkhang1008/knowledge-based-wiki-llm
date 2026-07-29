@@ -8,13 +8,13 @@ Không thay đổi tên hàm, thứ tự tham số và ý nghĩa giá trị tr�
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 from app.models.article import Article
 from sqlalchemy.ext.asyncio import AsyncSession 
 from sqlalchemy import select, update, delete
+from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.exc import IntegrityError
 
 class DuplicateDocumentError(Exception):
@@ -80,9 +80,9 @@ async def create_article(
 ) -> Article:
     payload = _to_dict(data) 
     document_id = str(payload["document_id"])
+    now = datetime.now(timezone.utc)
     try: 
-        now = datetime.now(timezone.utc)
-        article = Article(
+        stmt = insert(Article).values(
             id=str(uuid4()),
             document_id=document_id,
             title=str(payload["title"]),
@@ -90,11 +90,10 @@ async def create_article(
             source_file=str(payload["source_file"]),
             created_at=now,
             updated_at=now,
-        )
-        session.add(article)
-        await session.flush()
+        ).returning(Article)
+        article = await session.execute(stmt)
         await session.commit()
-        return article
+        return article.scalar_one()
     except IntegrityError:
         await session.rollback()
         raise DuplicateDocumentError(f"document with ID: {document_id} is already exist")
@@ -146,8 +145,28 @@ async def upsert_article_by_document_id(
 ) -> Article | None:
     payload = _to_dict(data)
     document_id = str(payload["document_id"])
-    existing = await get_article_by_document_id(session, document_id)
-    if existing is None:
-        return await create_article(session, payload)
-    article_id = str(existing.id)
-    return await update_article(session, article_id, payload) 
+    now = datetime.now(timezone.utc)
+    try:
+        stmt = insert(Article).values(
+            id=str(uuid4()),
+            document_id=document_id,
+            title=str(payload["title"]),
+            content=str(payload["content"]),
+            source_file=str(payload["source_file"]),
+            created_at=now,
+            updated_at=now,
+        )
+        upsert_stmt = stmt.on_conflict_do_update(
+            index_elements=['document_id'],
+            set_={
+                Article.title: stmt.excluded.title,             
+                Article.content: stmt.excluded.content,           
+                Article.source_file: stmt.excluded.source_file,
+                Article.updated_at: now,
+            }
+        ).returning(Article)
+        await session.execute(upsert_stmt)
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        raise

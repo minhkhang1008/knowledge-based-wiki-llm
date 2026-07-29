@@ -1,5 +1,4 @@
 from sqlalchemy import Column, Integer, String, JSON, DateTime
-from datetime import datetime,timezone
 from app.core.database import Base
 
 class QALog(Base):
@@ -8,4 +7,4 @@ class QALog(Base):
     question= Column(String,nullable= False)
     answer = Column(String,nullable= False)
     sources = Column(JSON) 
-    created_at = Column(DateTime,default= datetime.now(timezone.utc))
+    created_at = Column(DateTime)

@@ -1,8 +1,5 @@
-from datetime import datetime,timezone
 from app.core.database import Base
-from sqlalchemy import Column,String,DateTime,select
-from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Optional
+from sqlalchemy import Column,String,DateTime
 
 class Article(Base):
     __tablename__ = "articles"
@@ -11,5 +8,5 @@ class Article(Base):
     title = Column(String, nullable= False)
     content = Column(String, nullable= False)
     source_file = Column(String, nullable= False)
-    created_at = Column(DateTime, default= datetime.now(timezone.utc))
+    created_at = Column(DateTime)
     updated_at = Column(DateTime)
