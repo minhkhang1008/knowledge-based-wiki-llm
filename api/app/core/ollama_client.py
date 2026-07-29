@@ -46,13 +46,13 @@ async def generate_embedding(text: str) -> list[float]:
             else:
                   content = getattr(response, "embedding", None)
 
-            if (isinstance(content, list) == False or not content):
+            if (not isinstance(content, list) or not content):
                   raise InvalidResponseError("Response không hợp lệ")
             
-            for embeded_text in content:
+            for embedded_text in content:
                   if (
-                        isinstance(embeded_text, bool) == True or 
-                        isinstance(embeded_text, (int, float)) != True
+                        isinstance(embedded_text, bool) or 
+                        not isinstance(embedded_text, (int, float))
                   ):
                         raise InvalidResponseError("Response không hợp lệ")
             return content
@@ -85,6 +85,9 @@ async def generate_chat(prompt: str) -> str:
             else:
                   msg = getattr(response, "message", None)
 
+            if not msg:
+                  raise InvalidResponseError("Response không hợp lệ")
+
             if (isinstance(msg, dict)):
                   content = msg.get("content")
             else:
@@ -100,10 +103,5 @@ async def generate_chat(prompt: str) -> str:
       else:
             raise InvalidResponseError("Response không hợp lệ")
 
-async def main():
-      await chat()
-
-if __name__ == "__main__":
-      asyncio.run(main())
 
       
