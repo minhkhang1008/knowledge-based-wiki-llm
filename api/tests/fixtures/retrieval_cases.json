@@ -1,0 +1,64 @@
+{
+  "_meta": {
+    "description": "Fixture riêng cho scripts/evaluate_retrieval.py — KHÔNG phải shared mock dùng chung cho unit test khác.",
+    "data_type": "synthetic",
+    "note": "Dữ liệu synthetic, tạo tạm để không phải chờ dữ liệu thật từ Squad 1. Khi có article/source thật đã được index vào ChromaDB, thay nội dung 'cases' bên dưới bằng câu hỏi + expected_source thật tương ứng — KHÔNG cần đổi logic trong evaluate_retrieval.py."
+  },
+  "cases": [
+    {
+      "question": "Người yêu cũ còn yêu tôi không?",
+      "expected_source": "article_001",
+      "expect_no_context": false
+    },
+    {
+      "question": "Sẽ có 1 Asuna Yuuki cho tôi chứ?",
+      "expected_source": "article_002",
+      "expect_no_context": false
+    },
+    {
+      "question": "Làm sao để tán cosplayer?",
+      "expected_source": "article_003",
+      "expect_no_context": false
+    },
+    {
+      "question": "Tôi thích gái tóc trắng mắt đỏ?",
+      "expected_source": "article_004",
+      "expect_no_context": false
+    },
+    {
+      "question": "Cáo tuyết dễ thương?",
+      "expected_source": "article_005",
+      "expect_no_context": false
+    },
+    {
+      "question": "Cách chế tạo ICBM?",
+      "expected_source": "hr_policy_2024.pdf",
+      "expect_no_context": false
+    },
+    {
+      "question": "Cấu tạo súng trường tấn công tầm trung?",
+      "expected_source": "hr_policy_2024.pdf",
+      "expect_no_context": false
+    },
+    {
+      "question": "Tàu ngầm hạt nhân lớn nhất thế giới?",
+      "expected_source": "finance_guideline.docx",
+      "expect_no_context": false
+    },
+    {
+      "question": "Cristiano Ronaldo có phải người vĩ đại nhất thế giưới không?",
+      "expected_source": null,
+      "expect_no_context": true
+    },
+    {
+      "question": "Đội tuyển bóng đá Bồ Đào Nha vô địch World Cup năm nào?",
+      "expected_source": null,
+      "expect_no_context": true
+    },
+    {
+      "question": "NH Minh Khang và THSON có bị đồng tính không thế?",
+      "expected_source": null,
+      "expect_no_context": true
+    }
+  ]
+}
