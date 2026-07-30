@@ -17,21 +17,59 @@ collection = client.get_or_create_collection("chunks")
 RAG_TOP_K = int(os.getenv("RAG_TOP_K", 5))
 RAG_DISTANCE_THRESHOLD = float(os.getenv("RAG_DISTANCE_THRESHOLD", 0.7))
 
+# Các field filter được hỗ trợ, dùng để validate + tránh lọt field lạ vào where
+SUPPORTED_FILTER_FIELDS = {"article_id", "source_file"}
+
+
+def _build_where_clause(filters: dict[str, str] | None) -> dict | None:
+    """
+    Chuyển filters (dict đơn giản) thành cú pháp `where` hợp lệ của ChromaDB.
+
+    - filters None hoặc rỗng -> trả về None (không gửi where vào query).
+    - Chỉ nhận các field trong SUPPORTED_FILTER_FIELDS (article_id, source_file);
+      field khác hoặc value rỗng/None sẽ bị bỏ qua.
+    - 1 field hợp lệ -> {"field": {"$eq": value}}
+    - >1 field hợp lệ -> {"$and": [{"field1": {"$eq": v1}}, {"field2": {"$eq": v2}}]}
+    """
+    if not filters:
+        return None
+
+    clauses = [
+        {field: {"$eq": value}}
+        for field, value in filters.items()
+        if field in SUPPORTED_FILTER_FIELDS and value
+    ]
+
+    if not clauses:
+        return None
+
+    if len(clauses) == 1:
+        return clauses[0]
+
+    return {"$and": clauses}
+
+
 def search_similar_chunks(
     query_embedding: list[float],
     top_k: int = 5,
     filters: dict[str, str] | None = None,
 ) -> list[dict]:
-    
+
     output: list[dict] = []
 
     if not query_embedding:
         return output
 
-    results = collection.query(
-        query_embeddings=[query_embedding],
-        n_results=top_k,
-    )
+    where_clause = _build_where_clause(filters)
+
+    query_kwargs = {
+        "query_embeddings": [query_embedding],
+        "n_results": top_k,
+    }
+    if where_clause is not None:
+        query_kwargs["where"] = where_clause
+
+    results = collection.query(**query_kwargs)
 
     if not results or not results.get("documents") or not results["documents"][0]:
         return output
@@ -44,7 +82,6 @@ def search_similar_chunks(
     distances_raw = results.get("distances")
     distances = distances_raw[0] if distances_raw and distances_raw[0] is not None else []
 
-   
     for i, doc in enumerate(documents):
         meta = metadatas[i] if i < len(metadatas) else None
         distance = distances[i] if i < len(distances) else None
@@ -56,9 +93,9 @@ def search_similar_chunks(
 
         output.append({
             "text": doc,
-            "article_id": meta_dict.get("article_id"),  
-            "source_file": meta_dict.get("source_file"), 
-            "page_number": meta_dict.get("page_number"),  
+            "article_id": meta_dict.get("article_id"),
+            "source_file": meta_dict.get("source_file"),
+            "page_number": meta_dict.get("page_number"),
             "distance": distance,
         })
 
