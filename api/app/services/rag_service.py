@@ -18,15 +18,17 @@ async def execute_llm_generation(prompt: str, raw_chunks: list[dict]):
                   "no_answer_reason": None
             }
 
-async def process_rag_pipeline(question: str):
+async def process_rag_pipeline(question: str, chat_history: list[dict] | None = None) -> dict:
       embedded_text = await generate_embedding(question)
       document = search_similar_chunks(embedded_text, top_k = 5)
+      
       if not document:
             return {
                   "answer": "Tôi không tìm thấy thông tin này trong tài liệu.",
                   "sources": [],
-                  "no_answer_reason": "out_of_scope"
+                  "no_answer_reason": "insufficient_context"
             }
+      
       prompt = build_rag_prompt(question, document)
 
       return await execute_llm_generation(prompt, document)
