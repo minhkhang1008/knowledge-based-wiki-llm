@@ -142,7 +142,7 @@ async def delete_article(
 async def upsert_article_by_document_id(
     session: AsyncSession,
     data: Any,
-) -> Article | None:
+) -> Article:
     payload = _to_dict(data)
     document_id = str(payload["document_id"])
     now = datetime.now(timezone.utc)
@@ -165,8 +165,9 @@ async def upsert_article_by_document_id(
                 Article.updated_at: now,
             }
         ).returning(Article)
-        await session.execute(upsert_stmt)
+        result = await session.execute(upsert_stmt)
         await session.commit()
+        return result.scalar_one()
     except Exception:
         await session.rollback()
         raise
