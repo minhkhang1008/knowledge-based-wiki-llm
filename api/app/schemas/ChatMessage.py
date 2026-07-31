@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from typing import Optional
 
-class chatMessage(BaseModel):
+class ChatMessage(BaseModel):
     role : str
     content : str

@@ -3,8 +3,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from app.api.v1 import articles, qa, search, wiki_articles
 from app.core.exceptions import AIModelOfflineException
-from app.schemas.ErrorResponse import errorResponse
-from app.schemas.ErrorFormat import errorFormat
+from app.schemas.ErrorResponse import ErrorResponse
+from app.schemas.ErrorFormat import ErrorFormat
 
 app = FastAPI(
     title="Knowledge Based Wiki LLM API",
@@ -26,10 +26,10 @@ async def ai_mode_offline_exception(request: Request, exc: AIModelOfflineExcepti
     # request: bat buoc, schema de luu gia tri
     # exc: lay gia tri bao loi
     return JSONResponse(
-        status_code = 503,
+        status_code = 500 if str(exc) == "Lỗi không xác định khi kết nối Ollama" else 503,
         content = {
             "success": False,
-            "message": "Hệ thống AI hiện đang ngoại tuyến, vui lòng liên hệ quản trị viên.",
+            "message": str(exc),
             "data": None,
             "error": {
                 "code": "503 Service Unavailable",
@@ -40,11 +40,11 @@ async def ai_mode_offline_exception(request: Request, exc: AIModelOfflineExcepti
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    response = errorResponse(
+    response = ErrorResponse(
         success = False,
         data = None,
         message = "Request sai định dạng dữ liệu",
-        error = errorFormat(
+        error = ErrorFormat(
             code = "422 Unprocessable Content",
             detail = str(exc.errors())
         )

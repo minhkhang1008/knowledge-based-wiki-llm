@@ -11,8 +11,8 @@ from app.repositories.article_repository import (
     upsert_article_by_document_id
 )
 from app.schemas.article import ArticleCreate, ArticleUpdate, ArticleResponse
-from app.schemas.ErrorResponse import errorResponse
-from app.schemas.ErrorFormat import errorFormat
+from app.schemas.ErrorResponse import ErrorResponse
+from app.schemas.ErrorFormat import ErrorFormat
 from app.core.database import get_db
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,7 +22,7 @@ class ArticleNotFound(Exception):
 router = APIRouter()
 
 @router.post("")
-async def createArticle(data: ArticleCreate, db: AsyncSession = Depends(get_db)):
+async def CreateArticle(data: ArticleCreate, db: AsyncSession = Depends(get_db)):
     try:
         article = await create_article(db, data)
         response_data = ArticleResponse.model_validate(article).model_dump(mode="json")
@@ -37,11 +37,11 @@ async def createArticle(data: ArticleCreate, db: AsyncSession = Depends(get_db))
             }
         )
     except DuplicateDocumentError as e:
-        response = errorResponse(
+        response = ErrorResponse(
             success = False,
             data = None,
             message = "Article đã tồn tại",
-            error = errorFormat(
+            error = ErrorFormat(
                 code = type(e).__name__,
                 detail = str(e)
             )
@@ -52,7 +52,7 @@ async def createArticle(data: ArticleCreate, db: AsyncSession = Depends(get_db))
         )
 
 @router.get("")
-async def getArticle(skip: int = 0, limit: int = 20,
+async def GetArticle(skip: int = 0, limit: int = 20,
                 search: Optional[str] = None, db: AsyncSession = Depends(get_db)):
     result = await list_articles(db, skip, limit, search)
     return {
@@ -63,7 +63,7 @@ async def getArticle(skip: int = 0, limit: int = 20,
     }
 
 @router.get("/{article_id}")
-async def getArticleById(article_id: str, db: AsyncSession = Depends(get_db)):
+async def GetArticleById(article_id: str, db: AsyncSession = Depends(get_db)):
     try:
         result = await get_article_by_id(db, article_id)
 
@@ -77,11 +77,11 @@ async def getArticleById(article_id: str, db: AsyncSession = Depends(get_db)):
             "error" : None
         }
     except ArticleNotFound:
-        response = errorResponse(
+        response = ErrorResponse(
             success = False,
             data = None,
             message = "Tìm kiếm thất bại",
-            error = errorFormat(
+            error = ErrorFormat(
                 code = "404 Not Found",
                 detail = f"Không tồn tại article với id là {article_id}"
             )
@@ -92,7 +92,7 @@ async def getArticleById(article_id: str, db: AsyncSession = Depends(get_db)):
         )
 
 @router.put("/{article_id}")
-async def updateArticle(data: ArticleUpdate, article_id: str, db: AsyncSession = Depends(get_db)):
+async def UpdateArticle(data: ArticleUpdate, article_id: str, db: AsyncSession = Depends(get_db)):
     try:
         result = await update_article(db, article_id, data)
 
@@ -106,11 +106,11 @@ async def updateArticle(data: ArticleUpdate, article_id: str, db: AsyncSession =
             "error" : None
         }
     except ArticleNotFound:
-        response = errorResponse(
+        response = ErrorResponse(
             success = False,
             data = None,
             message = "Cập nhật article thất bại",
-            error = errorFormat(
+            error = ErrorFormat(
                 code = "404 Not Found",
                 detail = f"Không tòn tại article với id là {article_id}"
             )
@@ -121,7 +121,7 @@ async def updateArticle(data: ArticleUpdate, article_id: str, db: AsyncSession =
         )
 
 @router.delete("{article_id}")
-async def deleteArticle(article_id: str, db: AsyncSession = Depends(get_db)):
+async def DeleteArticle(article_id: str, db: AsyncSession = Depends(get_db)):
     try:
         result = delete_article(db, article_id)
         if result == None:
@@ -133,11 +133,11 @@ async def deleteArticle(article_id: str, db: AsyncSession = Depends(get_db)):
             "error" : None
         }
     except ArticleNotFound:
-        response = errorResponse(
+        response = ErrorResponse(
             success = False,
             data = None,
             message = "Xóa article thất bại",
-            error = errorFormat(
+            error = ErrorFormat(
                 code = "404 Not Found",
                 detail = f"Không tồn tại article với id là {article_id} để xóa"
             )

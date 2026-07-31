@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, List
+from app.schemas.SourceResponse import SourceResponse
 
-class searchData(BaseModel):
-    query : str = Field(..., min_length=2)
+class SearchData(BaseModel):
+    results : Optional[List[SourceResponse]] = None

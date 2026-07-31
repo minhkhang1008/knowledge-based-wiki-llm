@@ -1,14 +1,14 @@
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
-from app.schemas.ErrorFormat import errorFormat
+from app.schemas.ErrorFormat import ErrorFormat
 
-class dataResponse(BaseModel):
+class DataResponse(BaseModel):
     answer: str
     sources: List[Dict[str, Any]]
-    no_answer_reason : str
+    no_answer_reason : Optional[str] = None
 
 class AskResponse(BaseModel):
     success: bool
-    data: Optional[dataResponse] = None
+    data: Optional[DataResponse] = None
     message: str
-    error: Optional[errorFormat] = None
+    error: Optional[ErrorFormat] = None

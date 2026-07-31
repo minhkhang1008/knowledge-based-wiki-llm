@@ -1,11 +1,11 @@
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
-from app.schemas.ErrorFormat import errorFormat
-from app.schemas.SourceResponse import sourceResponse
+from app.schemas.ErrorFormat import ErrorFormat
+from app.schemas.SearchData import SearchData
 
-class searchResponse(BaseModel):
+class SearchResponse(BaseModel):
     success : bool
-    data : Optional[List[sourceResponse]] = None
+    data : Optional[SearchData] = None
     message : str
-    error : Optional[errorFormat] = None
+    error : Optional[ErrorFormat] = None
 

@@ -1,9 +1,9 @@
 from pydantic import BaseModel
 from typing import Optional
-from app.schemas.ErrorFormat import errorFormat
+from app.schemas.ErrorFormat import ErrorFormat
 
-class errorResponse(BaseModel):
+class ErrorResponse(BaseModel):
     success : bool
     data : None
     message : str
-    error : errorFormat
+    error : ErrorFormat

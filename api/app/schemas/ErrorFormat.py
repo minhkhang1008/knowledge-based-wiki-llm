@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from typing import Optional
 
-class errorFormat(BaseModel):
+class ErrorFormat(BaseModel):
     code : str
     detail : str
