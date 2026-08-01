@@ -29,16 +29,16 @@ async def ai_mode_offline_exception(request: Request, exc: AIModelOfflineExcepti
     response = ErrorResponse(
         success = False,
         data = None,
-        message = "test",
+        message = str(exc),
         error = ErrorFormat(
-            code = "test",
-            detail = "test"
+            code = "503 Service Unavailable",
+            detail = str(exc)
         )
     )
 
     return JSONResponse(
-        status_code = "test", #500 if str(exc) == "Lỗi không xác định khi kết nối Ollama" else 503,
-        content = response
+        status_code = status.HTTP_503_SERVICE_UNAVAILABLE, #500 if str(exc) == "Lỗi không xác định khi kết nối Ollama" else 503,
+        content = response.model_dump()
     )
 
 @app.exception_handler(RequestValidationError)
