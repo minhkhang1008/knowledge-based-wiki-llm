@@ -25,17 +25,20 @@ def root():
 async def ai_mode_offline_exception(request: Request, exc: AIModelOfflineException):
     # request: bat buoc, schema de luu gia tri
     # exc: lay gia tri bao loi
+
+    response = ErrorResponse(
+        success = False,
+        data = None,
+        message = "test",
+        error = ErrorFormat(
+            code = "test",
+            detail = "test"
+        )
+    )
+
     return JSONResponse(
-        status_code = 500 if str(exc) == "Lỗi không xác định khi kết nối Ollama" else 503,
-        content = {
-            "success": False,
-            "message": str(exc),
-            "data": None,
-            "error": {
-                "code": "503 Service Unavailable",
-                "detail" : "AI_ENGINE_OFFLINE"
-            }
-        }
+        status_code = "test", #500 if str(exc) == "Lỗi không xác định khi kết nối Ollama" else 503,
+        content = response
     )
 
 @app.exception_handler(RequestValidationError)
