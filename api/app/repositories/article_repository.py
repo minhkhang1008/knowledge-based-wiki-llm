@@ -8,28 +8,17 @@ Không thay đổi tên hàm, thứ tự tham số và ý nghĩa giá trị tr�
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
-
+from app.models.article import Article
+from sqlalchemy.ext.asyncio import AsyncSession 
+from sqlalchemy import select, update, delete
+from sqlalchemy.dialects.sqlite import insert
+from sqlalchemy.exc import IntegrityError
 
 class DuplicateDocumentError(Exception):
     """Raised when creating an Article with an existing document_id."""
-
-
-@dataclass(slots=True)
-class ArticleRecord:
-    id: str
-    document_id: str
-    title: str
-    content: str
-    source_file: str
-    created_at: datetime
-    updated_at: datetime
-
-
-_ARTICLES: dict[str, ArticleRecord] = {}
 
 
 def _to_dict(data: Any) -> dict[str, Any]:
@@ -43,123 +32,145 @@ def _to_dict(data: Any) -> dict[str, Any]:
 
 
 async def get_article_by_id(
-    session: Any,
+    session: AsyncSession,
     article_id: str,
-) -> ArticleRecord | None:
-    return _ARTICLES.get(article_id)
-
-
+) -> Article | None:
+    try:
+        stmt = select(Article).where(Article.id == article_id)
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
+    except Exception: 
+        await session.rollback()
+        raise
+    
+    
 async def get_article_by_document_id(
-    session: Any,
+    session: AsyncSession,
     document_id: str,
-) -> ArticleRecord | None:
-    for article in _ARTICLES.values():
-        if article.document_id == document_id:
-            return article
-
-    return None
+) -> Article | None:
+    try: 
+        stmt = select(Article).where(Article.document_id == document_id)
+        result = await session.execute(stmt)
+        return  result.scalar_one_or_none()
+    except Exception: 
+        await session.rollback()
+        raise
 
 
 async def list_articles(
-    session: Any,
+    session: AsyncSession,
     skip: int = 0,
     limit: int = 20,
     search: str | None = None,
-) -> list[ArticleRecord]:
-    articles = list(_ARTICLES.values())
-
-    if search:
-        keyword = search.casefold()
-        articles = [
-            article
-            for article in articles
-            if keyword in article.title.casefold()
-        ]
-
-    safe_skip = max(skip, 0)
-    safe_limit = min(max(limit, 1), 100)
-
-    return articles[safe_skip : safe_skip + safe_limit]
-
-
+) -> list[Article]:
+    try: 
+        safe_skip = max(skip, 0)
+        safe_limit = min(max(limit, 1), 100)
+        stmt = select(Article).offset(safe_skip).limit(safe_limit)
+        if search is not None:
+            stmt = stmt.where(Article.title.like(f"%{search}%"))
+        result = await session.execute(stmt)
+        return list(result.scalars().all())
+    except Exception: 
+        await session.rollback()
+        raise
+    
+    
 async def create_article(
-    session: Any,
+    session: AsyncSession,
     data: Any,
-) -> ArticleRecord:
-    payload = _to_dict(data)
+) -> Article:
+    payload = _to_dict(data) 
     document_id = str(payload["document_id"])
-
-    existing = await get_article_by_document_id(session, document_id)
-    if existing is not None:
-        raise DuplicateDocumentError(
-            f"document_id '{document_id}' already exists"
-        )
-
     now = datetime.now(timezone.utc)
-
-    article = ArticleRecord(
-        id=str(uuid4()),
-        document_id=document_id,
-        title=str(payload["title"]),
-        content=str(payload["content"]),
-        source_file=str(payload["source_file"]),
-        created_at=now,
-        updated_at=now,
-    )
-
-    _ARTICLES[article.id] = article
-    return article
+    try: 
+        stmt = insert(Article).values(
+            id=str(uuid4()),
+            document_id=document_id,
+            title=str(payload["title"]),
+            content=str(payload["content"]),
+            source_file=str(payload["source_file"]),
+            created_at=now,
+            updated_at=now,
+        ).returning(Article)
+        article = await session.execute(stmt)
+        await session.commit()
+        return article.scalar_one()
+    except IntegrityError:
+        await session.rollback()
+        raise DuplicateDocumentError(f"document with ID: {document_id} is already exist")
+    except Exception: 
+        await session.rollback()
+        raise  
 
 
 async def update_article(
-    session: Any,
+    session: AsyncSession,
     article_id: str,
     data: Any,
-) -> ArticleRecord | None:
-    article = await get_article_by_id(session, article_id)
-    if article is None:
-        return None
-
-    payload = _to_dict(data)
-
-    updated_article = replace(
-        article,
-        title=payload.get("title", article.title),
-        content=payload.get("content", article.content),
-        source_file=payload.get("source_file", article.source_file),
-        updated_at=datetime.now(timezone.utc),
-    )
-
-    _ARTICLES[article_id] = updated_article
-    return updated_article
+) -> Article | None:
+    try:
+        payload = _to_dict(data)
+        stmt = update(Article).where(Article.id == article_id).values(
+            title= payload.get("title", Article.title),
+            content= payload.get("content", Article.content),
+            source_file= payload.get("source_file", Article.source_file),
+            updated_at= datetime.now(timezone.utc),
+        ).returning(Article)
+        result = await session.execute(stmt)
+        await session.commit()
+        return result.scalar_one_or_none()
+    except Exception:
+        await session.rollback()
+        raise
 
 
 async def delete_article(
-    session: Any,
+    session: AsyncSession,
     article_id: str,
 ) -> bool:
-    return _ARTICLES.pop(article_id, None) is not None
+    try: 
+        stmt = delete(Article).where(Article.id == article_id).returning(Article.id)
+        result = await session.execute(stmt)
+        if result.scalar_one_or_none() is None:
+            await session.rollback()
+            return False
+        await session.commit()
+        return True
+    except Exception:
+        await session.rollback()
+        raise 
 
 
 async def upsert_article_by_document_id(
-    session: Any,
+    session: AsyncSession,
     data: Any,
-) -> ArticleRecord:
+) -> Article:
     payload = _to_dict(data)
     document_id = str(payload["document_id"])
-
-    existing = await get_article_by_document_id(session, document_id)
-
-    if existing is None:
-        return await create_article(session, payload)
-
-    updated_article = replace(
-        existing,
-        title=str(payload["title"]),
-        content=str(payload["content"]),
-        source_file=str(payload["source_file"]),
-        updated_at=datetime.now(timezone.utc),
-    )
-
-    _ARTICLES[existing.id] = updated_article
-    return updated_article
+    now = datetime.now(timezone.utc)
+    try:
+        stmt = insert(Article).values(
+            id=str(uuid4()),
+            document_id=document_id,
+            title=str(payload["title"]),
+            content=str(payload["content"]),
+            source_file=str(payload["source_file"]),
+            created_at=now,
+            updated_at=now,
+        )
+        upsert_stmt = stmt.on_conflict_do_update(
+            index_elements=['document_id'],
+            set_={
+                Article.title: stmt.excluded.title,             
+                Article.content: stmt.excluded.content,           
+                Article.source_file: stmt.excluded.source_file,
+                Article.updated_at: now,
+            }
+        ).returning(Article)
+        result = await session.execute(upsert_stmt)
+        await session.commit()
+        return result.scalar_one()
+    except Exception:
+        await session.rollback()
+        raise
