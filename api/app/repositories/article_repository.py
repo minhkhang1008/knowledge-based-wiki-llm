@@ -64,7 +64,9 @@ async def list_articles(
     search: str | None = None,
 ) -> list[Article]:
     try: 
-        stmt = select(Article).offset(skip).limit(limit)
+        safe_skip = max(skip, 0)
+        safe_limit = min(max(limit, 1), 100)
+        stmt = select(Article).offset(safe_skip).limit(safe_limit)
         if search is not None:
             stmt = stmt.where(Article.title.like(f"%{search}%"))
         result = await session.execute(stmt)
@@ -131,6 +133,7 @@ async def delete_article(
         stmt = delete(Article).where(Article.id == article_id).returning(Article.id)
         result = await session.execute(stmt)
         if result.scalar_one_or_none() is None:
+            await session.rollback()
             return False
         await session.commit()
         return True
