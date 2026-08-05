@@ -1,7 +1,10 @@
 from app.core.ollama_client import generate_chat, generate_embedding
 from app.services.services_vector_db import search_similar_chunks
 from app.services.prompt_builder import build_rag_prompt
+import os
 import re
+
+RAG_HISTORY_LIMIT = int(os.getenv("RAG_HISTORY_LIMIT", "6"))
 
 async def execute_llm_generation(prompt: str, raw_chunks: list[dict]) -> dict:
       raw_answer = await generate_chat(prompt)
@@ -58,7 +61,7 @@ async def process_rag_pipeline(
             }
       
       if (chat_history != [] and chat_history != None):
-            recent_history = [chat_history[-1]]
+            recent_history = (chat_history or [])[-RAG_HISTORY_LIMIT:]
       else:
             recent_history = []
 
