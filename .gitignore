@@ -27,7 +27,7 @@ chroma_db/
 
 # IDE
 .vscode/
-
+tesing.py
 # OS
 .DS_Store
 Thumbs.db
@@ -47,3 +47,4 @@ uv.lock
 api/uploads/
 api/images/
 api/storage/
+api/app/core/testing.py
