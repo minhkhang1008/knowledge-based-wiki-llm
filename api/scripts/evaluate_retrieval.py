@@ -1,35 +1,33 @@
 """
-
 Đánh giá chất lượng retrieval của hệ thống RAG.
 
-CHẾ ĐỘ CHẠY (2 chế độ):
+CHẾ ĐỘ CHẠY:
 
-1) DEFAULT (mặc định, không cần Ollama/ChromaDB thật):
-   Dùng một "fake collection" synthetic dựng sẵn trong file này (FAKE_CORPUS) để mô phỏng
-   retrieval bằng cách so khớp từ khóa đơn giản. Mục đích: cho phép chạy và tự kiểm tra logic
-   evaluate (Recall@k, no-context accuracy) mà không phụ thuộc Ollama/ChromaDB, không cần dữ
-   liệu thật đã ingest.
+1) DEFAULT — không cần Ollama/ChromaDB:
+   Dùng FAKE_CORPUS để kiểm tra logic đánh giá.
 
        python scripts/evaluate_retrieval.py
 
-2) INTEGRATION (chỉ chạy khi có biến môi trường RUN_RAG_INTEGRATION=1):
-   Gọi thẳng semantic_search_logic thật (Ollama embedding + ChromaDB thật).
-   Trước khi chạy, script tự kiểm tra (precheck):
-     - ChromaDB (collection "chunks") đã có dữ liệu chưa (count() > 0)?
-     - Ollama có đang chạy và phản hồi được không?
-   Nếu 1 trong 2 điều kiện trên chưa sẵn sàng (vd: chưa ingest dữ liệu thật, Ollama chưa bật),
-   script in thông báo rõ ràng và BỎ QUA (không coi là lỗi/fail, không crash):
+2) INTEGRATION — dùng Ollama và ChromaDB thật:
+   Chỉ chạy khi RUN_RAG_INTEGRATION=1. Nếu dữ liệu hoặc Ollama chưa sẵn sàng,
+   script thông báo rõ và bỏ qua.
 
        RUN_RAG_INTEGRATION=1 python scripts/evaluate_retrieval.py
 
-Dữ liệu test nằm ở tests/fixtures/retrieval_cases.json — đây là fixture riêng cho script này
-(không phải shared mock). Khi có dữ liệu thật từ Squad 1, chỉ cần thay nội dung "cases" trong
-file đó, KHÔNG cần đổi logic đánh giá trong file này.
+Dataset:
+    tests/fixtures/retrieval_cases.json
 
-GHI CHÚ CHO PR: khi đã chạy đánh giá (default hoặc integration), chỉ cần mô tả ngắn gọn kết quả
-baseline (vd "Recall@5: 8/8, no-context: 3/3") và lựa chọn top_k/threshold đã dùng (script in ra
-2 giá trị này cuối phần SUMMARY để copy nhanh vào PR).
+Script hiển thị:
+- Question
+- Expected source
+- Retrieved sources
+- Pass/Fail
+- Recall@k
+- Tỷ lệ nhận diện đúng câu hỏi không có context
+- Số case pass trên tổng số case
 """
+
+from __future__ import annotations
 
 import argparse
 import asyncio
@@ -37,191 +35,393 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Awaitable, Callable
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-DEFAULT_DATASET_PATH = Path(__file__).parent.parent / "tests" / "fixtures" / "retrieval_cases.json"
-DEFAULT_TOP_K = 5  # cố định theo yêu cầu "Recall@5"
+# Chạy file từ thư mục api:
+#     cd api
+#     python scripts/evaluate_retrieval.py
+API_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(API_ROOT))
 
-# Ngưỡng "distance" giả lập dùng cho fake collection ở chế độ default.
-# Không liên quan tới RAG_DISTANCE_THRESHOLD thật trong services_vector_db.py.
+DEFAULT_DATASET_PATH = (
+    API_ROOT / "tests" / "fixtures" / "retrieval_cases.json"
+)
+DEFAULT_TOP_K = 5
 MOCK_DISTANCE_THRESHOLD = 0.8
+SUPPORTED_FILTER_FIELDS = {"article_id", "source_file"}
 
 
 # =============================================================================
-# FAKE COLLECTION (chế độ DEFAULT) — synthetic, không cần Ollama/ChromaDB
+# FAKE COLLECTION — dùng cho chế độ DEFAULT
 # =============================================================================
+
 FAKE_CORPUS: list[dict[str, Any]] = [
     {
-        "text": "Điều kiện hưởng chế độ thai sản gồm thời gian đóng bảo hiểm xã hội tối thiểu.",
+        "text": (
+            "Điều kiện hưởng chế độ thai sản gồm thời gian đóng "
+            "bảo hiểm xã hội tối thiểu."
+        ),
         "article_id": "article_001",
         "source_file": None,
         "keywords": ["thai sản", "chế độ thai sản", "điều kiện hưởng"],
     },
     {
-        "text": "Mức đóng bảo hiểm xã hội bắt buộc được tính theo phần trăm lương cơ bản.",
+        "text": (
+            "Mức đóng bảo hiểm xã hội bắt buộc được tính theo "
+            "phần trăm lương cơ bản."
+        ),
         "article_id": "article_002",
         "source_file": None,
-        "keywords": ["bảo hiểm xã hội", "mức đóng", "bắt buộc", "phần trăm"],
+        "keywords": [
+            "bảo hiểm xã hội",
+            "mức đóng",
+            "bắt buộc",
+            "phần trăm",
+        ],
     },
     {
-        "text": "Người lao động có quyền nghỉ phép năm tối thiểu theo quy định của luật lao động.",
+        "text": (
+            "Người lao động có quyền nghỉ phép năm tối thiểu "
+            "theo quy định của luật lao động."
+        ),
         "article_id": "article_003",
         "source_file": None,
         "keywords": ["nghỉ phép năm", "tối thiểu", "ngày phép"],
     },
     {
-        "text": "Hồ sơ xin cấp lại sổ bảo hiểm xã hội gồm đơn đề nghị và giấy tờ tùy thân.",
+        "text": (
+            "Hồ sơ xin cấp lại sổ bảo hiểm xã hội gồm đơn đề nghị "
+            "và giấy tờ tùy thân."
+        ),
         "article_id": "article_004",
         "source_file": None,
-        "keywords": ["hồ sơ", "cấp lại sổ", "bảo hiểm xã hội", "giấy tờ"],
+        "keywords": [
+            "hồ sơ",
+            "cấp lại sổ",
+            "bảo hiểm xã hội",
+            "giấy tờ",
+        ],
     },
     {
-        "text": "Thời gian thử việc tối đa phụ thuộc vào tính chất và mức độ công việc.",
+        "text": (
+            "Thời gian thử việc tối đa phụ thuộc vào tính chất "
+            "và mức độ công việc."
+        ),
         "article_id": "article_005",
         "source_file": None,
         "keywords": ["thử việc", "tối đa", "thời gian thử việc"],
     },
     {
-        "text": "Người lao động được nghỉ phép có hưởng lương khi kết hôn theo chính sách công ty.",
+        "text": (
+            "Người lao động được nghỉ phép có hưởng lương khi kết hôn "
+            "theo chính sách công ty."
+        ),
         "article_id": None,
         "source_file": "hr_policy_2024.pdf",
         "keywords": ["kết hôn", "nghỉ khi kết hôn"],
     },
     {
-        "text": "Chính sách làm việc từ xa (remote) áp dụng cho các phòng ban đủ điều kiện.",
+        "text": (
+            "Chính sách làm việc từ xa (remote) áp dụng cho "
+            "các phòng ban đủ điều kiện."
+        ),
         "article_id": None,
         "source_file": "hr_policy_2024.pdf",
-        "keywords": ["làm việc từ xa", "remote", "chính sách làm việc"],
+        "keywords": [
+            "làm việc từ xa",
+            "remote",
+            "chính sách làm việc",
+        ],
     },
     {
-        "text": "Quy trình phê duyệt chi phí công tác yêu cầu hóa đơn và xác nhận của quản lý.",
+        "text": (
+            "Quy trình phê duyệt chi phí công tác yêu cầu hóa đơn "
+            "và xác nhận của quản lý."
+        ),
         "article_id": None,
         "source_file": "finance_guideline.docx",
-        "keywords": ["chi phí công tác", "phê duyệt", "quy trình phê duyệt"],
+        "keywords": [
+            "chi phí công tác",
+            "phê duyệt",
+            "quy trình phê duyệt",
+        ],
     },
 ]
 
 
 def _normalize(text: str) -> str:
-    return text.lower().strip()
+    return " ".join(text.lower().strip().split())
+
+
+def _validate_filters(filters: Any, case_number: int) -> dict[str, str] | None:
+    if filters is None:
+        return None
+
+    if not isinstance(filters, dict):
+        raise ValueError(
+            f"Case {case_number}: filters phải là object/dict."
+        )
+
+    normalized: dict[str, str] = {}
+
+    for field, value in filters.items():
+        if field not in SUPPORTED_FILTER_FIELDS:
+            raise ValueError(
+                f"Case {case_number}: filter '{field}' không được hỗ trợ. "
+                "Chỉ dùng article_id hoặc source_file."
+            )
+
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(
+                f"Case {case_number}: giá trị filter '{field}' "
+                "phải là chuỗi không rỗng."
+            )
+
+        normalized[field] = value.strip()
+
+    return normalized or None
 
 
 def fake_search_similar_chunks(
     query_text: str,
-    top_k: int = 5,
+    top_k: int = DEFAULT_TOP_K,
     filters: dict[str, str] | None = None,
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """
-    Bản mô phỏng của search_similar_chunks, dùng FAKE_CORPUS thay cho ChromaDB thật.
-    Cùng shape output (text, article_id, source_file, page_number, distance) để
-    extract_retrieved_sources() dùng chung logic với chế độ integration.
-    """
-    normalized_query = _normalize(query_text)
+    Mô phỏng retrieval bằng so khớp keyword.
 
+    Output giữ cùng shape với search_similar_chunks thật:
+    text, article_id, source_file, page_number, distance.
+    """
+    if top_k <= 0:
+        raise ValueError("top_k phải lớn hơn 0.")
+
+    normalized_query = _normalize(query_text)
     candidates = FAKE_CORPUS
+
     if filters:
         candidates = [
-            c for c in candidates
-            if all(c.get(field) == value for field, value in filters.items() if value)
+            chunk
+            for chunk in candidates
+            if all(
+                chunk.get(field) == value
+                for field, value in filters.items()
+            )
         ]
 
-    scored: list[dict] = []
+    scored: list[dict[str, Any]] = []
+
     for chunk in candidates:
-        score = sum(1 for kw in chunk["keywords"] if kw in normalized_query)
-        if score == 0:
+        matched_keywords = sum(
+            1
+            for keyword in chunk["keywords"]
+            if _normalize(keyword) in normalized_query
+        )
+
+        if matched_keywords == 0:
             continue
 
-        distance = round(max(0.0, 1 - score / len(chunk["keywords"])), 3)
+        distance = round(
+            max(
+                0.0,
+                1 - matched_keywords / len(chunk["keywords"]),
+            ),
+            3,
+        )
+
         if distance > MOCK_DISTANCE_THRESHOLD:
             continue
 
-        scored.append({
-            "text": chunk["text"],
-            "article_id": chunk["article_id"],
-            "source_file": chunk["source_file"],
-            "page_number": None,
-            "distance": distance,
-        })
+        scored.append(
+            {
+                "text": chunk["text"],
+                "article_id": chunk["article_id"],
+                "source_file": chunk["source_file"],
+                "page_number": None,
+                "distance": distance,
+            }
+        )
 
-    scored.sort(key=lambda x: x["distance"])
+    scored.sort(key=lambda item: item["distance"])
     return scored[:top_k]
 
 
 async def fake_semantic_search_logic(
     query_text: str,
-    top_k: int = 5,
+    top_k: int = DEFAULT_TOP_K,
     filters: dict[str, str] | None = None,
-) -> list[dict]:
-    return fake_search_similar_chunks(query_text, top_k=top_k, filters=filters)
+) -> list[dict[str, Any]]:
+    return fake_search_similar_chunks(
+        query_text,
+        top_k=top_k,
+        filters=filters,
+    )
 
 
 # =============================================================================
-# INTEGRATION MODE (chỉ chạy khi RUN_RAG_INTEGRATION=1)
+# INTEGRATION MODE
 # =============================================================================
 
 async def integration_precheck() -> str | None:
     """
-    Kiểm tra trước khi chạy integration: ChromaDB có dữ liệu chưa, Ollama có sống không.
-    Trả về None nếu sẵn sàng chạy; trả về chuỗi mô tả lý do nếu chưa sẵn sàng (để bỏ qua).
+    Trả None khi integration sẵn sàng.
+    Nếu chưa sẵn sàng, trả chuỗi mô tả lý do để bỏ qua.
     """
     try:
-        from app.services.services_vector_db import collection as real_collection
-    except Exception as e:
-        return f"Không import được app.services.services_vector_db: {e}"
+        from app.services.services_vector_db import (
+            collection as real_collection,
+        )
+    except Exception as exc:
+        return (
+            "Không import được app.services.services_vector_db: "
+            f"{exc}"
+        )
 
     try:
         if real_collection.count() == 0:
-            return "ChromaDB (collection 'chunks') đang rỗng — chưa có dữ liệu thật được ingest."
-    except Exception as e:
-        return f"Không kết nối được ChromaDB: {e}"
+            return (
+                "ChromaDB collection 'chunks' đang rỗng; "
+                "chưa có dữ liệu thật được ingest."
+            )
+    except Exception as exc:
+        return f"Không kiểm tra được ChromaDB: {exc}"
 
     try:
         from app.core.ollama_client import chat as ollama_health_check
+
         await ollama_health_check()
-    except Exception as e:
-        return f"Không kết nối được Ollama (hoặc model chưa sẵn sàng): {e}"
+    except Exception as exc:
+        return f"Không kết nối được Ollama: {exc}"
 
     return None
 
 
 # =============================================================================
-# Dataset / fixture loading
+# DATASET
 # =============================================================================
 
 def load_dataset(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         raise FileNotFoundError(
-            f"Không tìm thấy file fixture: {path}. "
-            "Hãy tạo file tests/fixtures/retrieval_cases.json theo định dạng mô tả trong docstring."
+            f"Không tìm thấy fixture: {path}"
         )
 
-    with path.open("r", encoding="utf-8") as f:
-        raw = json.load(f)
+    try:
+        with path.open("r", encoding="utf-8") as file:
+            raw = json.load(file)
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"Fixture không phải JSON hợp lệ: {exc}"
+        ) from exc
 
-    if isinstance(raw, dict) and "cases" in raw:
-        data = raw["cases"]
+    if isinstance(raw, dict):
+        data = raw.get("cases")
     elif isinstance(raw, list):
         data = raw
     else:
+        data = None
+
+    if not isinstance(data, list) or not data:
         raise ValueError(
-            "Fixture sai định dạng: cần là list case, hoặc object có key 'cases' chứa list case."
+            "Fixture phải là list case hoặc object có key 'cases'."
         )
 
-    if not data:
-        raise ValueError("Dataset rỗng (không có case nào).")
+    if len(data) < 10:
+        raise ValueError(
+            "Fixture phải có tối thiểu 10 retrieval cases."
+        )
 
-    return data
+    normalized_cases: list[dict[str, Any]] = []
+    no_context_count = 0
+
+    for index, case in enumerate(data, start=1):
+        if not isinstance(case, dict):
+            raise ValueError(
+                f"Case {index}: phải là object/dict."
+            )
+
+        question = case.get("question")
+        if not isinstance(question, str) or not question.strip():
+            raise ValueError(
+                f"Case {index}: question phải là chuỗi không rỗng."
+            )
+
+        expect_no_context = case.get(
+            "expect_no_context",
+            False,
+        )
+        if not isinstance(expect_no_context, bool):
+            raise ValueError(
+                f"Case {index}: expect_no_context phải là boolean."
+            )
+
+        expected_source = case.get("expected_source")
+
+        if expect_no_context:
+            no_context_count += 1
+            if expected_source is not None:
+                raise ValueError(
+                    f"Case {index}: câu hỏi no-context phải có "
+                    "expected_source = null."
+                )
+        else:
+            if (
+                not isinstance(expected_source, str)
+                or not expected_source.strip()
+            ):
+                raise ValueError(
+                    f"Case {index}: câu hỏi có context phải có "
+                    "expected_source là chuỗi không rỗng."
+                )
+            expected_source = expected_source.strip()
+
+        normalized_cases.append(
+            {
+                "question": question.strip(),
+                "expected_source": expected_source,
+                "expect_no_context": expect_no_context,
+                "filters": _validate_filters(
+                    case.get("filters"),
+                    index,
+                ),
+            }
+        )
+
+    if no_context_count < 2:
+        raise ValueError(
+            "Fixture phải có ít nhất 2 case "
+            "expect_no_context=true."
+        )
+
+    return normalized_cases
 
 
-def extract_retrieved_sources(chunks: list[dict[str, Any]]) -> list[str]:
-    sources = []
+def extract_retrieved_sources(
+    chunks: list[dict[str, Any]],
+) -> list[str]:
+    """
+    Lấy cả article_id và source_file.
+
+    Không dùng:
+        article_id or source_file
+
+    vì chunk thật có thể chứa đồng thời cả hai metadata.
+    """
+    sources: list[str] = []
+
     for chunk in chunks:
-        source = chunk.get("article_id") or chunk.get("source_file")
-        if source:
-            sources.append(source)
-    return sources
+        article_id = chunk.get("article_id")
+        source_file = chunk.get("source_file")
+
+        if isinstance(article_id, str) and article_id:
+            sources.append(article_id)
+
+        if isinstance(source_file, str) and source_file:
+            sources.append(source_file)
+
+    # Loại trùng nhưng giữ nguyên thứ tự.
+    return list(dict.fromkeys(sources))
 
 
 def evaluate_case(
@@ -230,44 +430,93 @@ def evaluate_case(
     retrieved_sources: list[str],
 ) -> bool:
     if expect_no_context:
-        return len(retrieved_sources) == 0
+        return not retrieved_sources
 
-    if not expected_source:
-        return False
-
-    return expected_source in retrieved_sources
+    return (
+        expected_source is not None
+        and expected_source in retrieved_sources
+    )
 
 
 def format_sources(sources: list[str]) -> str:
     return ", ".join(sources) if sources else "(rỗng)"
 
 
+def _shorten(text: str, max_length: int) -> str:
+    if len(text) <= max_length:
+        return text
+    return text[: max_length - 3] + "..."
+
+
 def print_table(rows: list[dict[str, Any]]) -> None:
-    headers = ["Question", "Expected source", "Retrieved sources", "Pass/Fail"]
-
-    table_rows = []
-    for row in rows:
-        table_rows.append([
-            row["question"],
-            row["expected_source"] if row["expected_source"] else "(no context)",
-            format_sources(row["retrieved_sources"]),
-            "PASS" if row["passed"] else "FAIL",
-        ])
-
-    col_widths = [
-        max(len(headers[i]), max((len(r[i]) for r in table_rows), default=0))
-        for i in range(len(headers))
+    headers = [
+        "Question",
+        "Expected source",
+        "Retrieved sources",
+        "Pass/Fail",
     ]
 
-    def format_row(cols: list[str]) -> str:
-        return " | ".join(col.ljust(col_widths[i]) for i, col in enumerate(cols))
+    table_rows: list[list[str]] = []
 
-    separator = "-+-".join("-" * w for w in col_widths)
+    for row in rows:
+        if row["error"]:
+            status = "ERROR"
+        else:
+            status = "PASS" if row["passed"] else "FAIL"
+
+        table_rows.append(
+            [
+                _shorten(row["question"], 70),
+                row["expected_source"] or "(no context)",
+                _shorten(
+                    format_sources(row["retrieved_sources"]),
+                    60,
+                ),
+                status,
+            ]
+        )
+
+    col_widths = [
+        max(
+            len(headers[column]),
+            max(
+                (
+                    len(row[column])
+                    for row in table_rows
+                ),
+                default=0,
+            ),
+        )
+        for column in range(len(headers))
+    ]
+
+    def format_row(columns: list[str]) -> str:
+        return " | ".join(
+            value.ljust(col_widths[index])
+            for index, value in enumerate(columns)
+        )
+
+    separator = "-+-".join(
+        "-" * width for width in col_widths
+    )
 
     print(format_row(headers))
     print(separator)
-    for r in table_rows:
-        print(format_row(r))
+
+    for row in table_rows:
+        print(format_row(row))
+
+    error_rows = [row for row in rows if row["error"]]
+    if error_rows:
+        print("\nChi tiết lỗi:")
+        for row in error_rows:
+            print(f"- {row['question']}: {row['error']}")
+
+
+SearchFunction = Callable[
+    [str, int, dict[str, str] | None],
+    Awaitable[list[dict[str, Any]]],
+]
 
 
 async def run_evaluation(
@@ -275,114 +524,208 @@ async def run_evaluation(
     top_k: int,
     integration_mode: bool,
 ) -> list[dict[str, Any]]:
-    results = []
-
     if integration_mode:
-        from app.services.services_vector_db import semantic_search_logic as search_fn
+        from app.services.services_vector_db import (
+            semantic_search_logic,
+        )
+
+        search_fn: SearchFunction = semantic_search_logic
     else:
         search_fn = fake_semantic_search_logic
 
+    results: list[dict[str, Any]] = []
+
     for case in dataset:
         question = case["question"]
-        expected_source = case.get("expected_source")
-        expect_no_context = bool(case.get("expect_no_context", False))
-        filters = case.get("filters")
+        expected_source = case["expected_source"]
+        expect_no_context = case["expect_no_context"]
+        filters = case["filters"]
 
         try:
-            chunks = await search_fn(question, top_k=top_k, filters=filters)
-        except Exception as e:
-            print(f"⚠️  Lỗi khi truy vấn câu hỏi '{question}': {e}", file=sys.stderr)
-            chunks = []
+            chunks = await search_fn(
+                question,
+                top_k=top_k,
+                filters=filters,
+            )
+            retrieved_sources = extract_retrieved_sources(
+                chunks
+            )
+            error = None
+            passed = evaluate_case(
+                expected_source,
+                expect_no_context,
+                retrieved_sources,
+            )
+        except Exception as exc:
+            # Lỗi kỹ thuật phải là FAIL.
+            # Không được biến thành chunks=[] vì case no-context
+            # có thể bị tính PASS giả.
+            retrieved_sources = []
+            error = f"{type(exc).__name__}: {exc}"
+            passed = False
 
-        retrieved_sources = extract_retrieved_sources(chunks)
-        passed = evaluate_case(expected_source, expect_no_context, retrieved_sources)
-
-        results.append({
-            "question": question,
-            "expected_source": expected_source,
-            "expect_no_context": expect_no_context,
-            "retrieved_sources": retrieved_sources,
-            "passed": passed,
-        })
+        results.append(
+            {
+                "question": question,
+                "expected_source": expected_source,
+                "expect_no_context": expect_no_context,
+                "retrieved_sources": retrieved_sources,
+                "passed": passed,
+                "error": error,
+            }
+        )
 
     return results
 
 
-def print_summary(results: list[dict[str, Any]], top_k: int, integration_mode: bool) -> None:
+def print_summary(
+    results: list[dict[str, Any]],
+    top_k: int,
+    integration_mode: bool,
+) -> bool:
     total = len(results)
-    passed_count = sum(1 for r in results if r["passed"])
+    passed_count = sum(
+        1 for result in results if result["passed"]
+    )
+    error_count = sum(
+        1 for result in results if result["error"]
+    )
 
-    context_cases = [r for r in results if not r["expect_no_context"]]
-    no_context_cases = [r for r in results if r["expect_no_context"]]
+    context_cases = [
+        result
+        for result in results
+        if not result["expect_no_context"]
+    ]
+    no_context_cases = [
+        result
+        for result in results
+        if result["expect_no_context"]
+    ]
+
+    recall_pass = sum(
+        1 for result in context_cases if result["passed"]
+    )
+    no_context_pass = sum(
+        1 for result in no_context_cases if result["passed"]
+    )
+
+    mode_name = (
+        "INTEGRATION (dữ liệu thật)"
+        if integration_mode
+        else "DEFAULT (fake collection / synthetic)"
+    )
+    threshold_name = (
+        "RAG_DISTANCE_THRESHOLD thật (xem .env)"
+        if integration_mode
+        else str(MOCK_DISTANCE_THRESHOLD)
+    )
 
     print("\n=== SUMMARY ===")
-    print(f"Chế độ: {'INTEGRATION (dữ liệu thật)' if integration_mode else 'DEFAULT (fake collection / synthetic)'}")
-    print(f"top_k = {top_k}, distance_threshold = "
-          f"{'RAG_DISTANCE_THRESHOLD thật (xem .env)' if integration_mode else MOCK_DISTANCE_THRESHOLD}")
+    print(f"Chế độ: {mode_name}")
+    print(
+        f"top_k = {top_k}, "
+        f"distance_threshold = {threshold_name}"
+    )
     print(f"Tổng số case: {total}")
-    print(f"Pass: {passed_count}/{total} ({passed_count / total:.1%})")
+    print(
+        f"Pass: {passed_count}/{total} "
+        f"({passed_count / total:.1%})"
+    )
+    print(
+        f"Recall@{top_k}: "
+        f"{recall_pass}/{len(context_cases)} "
+        f"({recall_pass / len(context_cases):.1%})"
+    )
+    print(
+        "Tỷ lệ nhận diện đúng câu hỏi không có context: "
+        f"{no_context_pass}/{len(no_context_cases)} "
+        f"({no_context_pass / len(no_context_cases):.1%})"
+    )
+    print(f"Lỗi kỹ thuật: {error_count}")
 
-    if context_cases:
-        recall_pass = sum(1 for r in context_cases if r["passed"])
-        print(
-            f"Recall@{top_k} (câu hỏi có context): "
-            f"{recall_pass}/{len(context_cases)} ({recall_pass / len(context_cases):.1%})"
-        )
-    else:
-        print(f"Recall@{top_k}: không có case nào có context để đánh giá.")
+    print("\nDòng có thể sao chép vào PR:")
+    print(
+        f"Recall@{top_k}: {recall_pass}/{len(context_cases)}; "
+        f"no-context: {no_context_pass}/{len(no_context_cases)}; "
+        f"pass: {passed_count}/{total}; "
+        f"top_k={top_k}; threshold={threshold_name}"
+    )
 
-    if no_context_cases:
-        no_ctx_pass = sum(1 for r in no_context_cases if r["passed"])
-        print(
-            f"Tỷ lệ nhận diện đúng câu hỏi không có context: "
-            f"{no_ctx_pass}/{len(no_context_cases)} ({no_ctx_pass / len(no_context_cases):.1%})"
-        )
-    else:
-        print("Không có case 'expect_no_context' nào để đánh giá.")
+    return passed_count == total
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Đánh giá chất lượng retrieval RAG.")
+    parser = argparse.ArgumentParser(
+        description="Đánh giá chất lượng retrieval RAG."
+    )
     parser.add_argument(
         "--dataset",
         type=Path,
         default=DEFAULT_DATASET_PATH,
-        help="Đường dẫn tới file fixture JSON (mặc định: tests/fixtures/retrieval_cases.json)",
+        help=(
+            "Đường dẫn tới fixture JSON "
+            "(mặc định: tests/fixtures/retrieval_cases.json)"
+        ),
     )
     parser.add_argument(
         "--top-k",
         type=int,
         default=DEFAULT_TOP_K,
-        help=f"Số lượng kết quả top-k để đánh giá (mặc định: {DEFAULT_TOP_K})",
+        help=f"Số kết quả retrieval, mặc định {DEFAULT_TOP_K}.",
     )
-    return parser.parse_args()
+
+    args = parser.parse_args()
+
+    if args.top_k <= 0:
+        parser.error("--top-k phải lớn hơn 0.")
+
+    return args
 
 
-def main() -> None:
+def main() -> int:
     args = parse_args()
-    integration_mode = os.getenv("RUN_RAG_INTEGRATION") == "1"
+    integration_mode = (
+        os.getenv("RUN_RAG_INTEGRATION") == "1"
+    )
 
     if integration_mode:
-        print("=== Chế độ INTEGRATION (RUN_RAG_INTEGRATION=1): dùng Ollama + ChromaDB thật ===")
+        print(
+            "=== INTEGRATION: dùng Ollama + ChromaDB thật ==="
+        )
         problem = asyncio.run(integration_precheck())
+
         if problem:
-            print(f"⚠️  Bỏ qua integration test: {problem}")
-            print("   (Chưa sẵn sàng dữ liệu thật/Ollama — không chạy đánh giá integration lần này.)")
-            sys.exit(0)
+            print(f"Bỏ qua integration test: {problem}")
+            return 0
     else:
-        print("=== Chế độ DEFAULT: dùng fake collection / dữ liệu synthetic (không cần Ollama/ChromaDB) ===")
+        print(
+            "=== DEFAULT: dùng fake collection / "
+            "dữ liệu synthetic ==="
+        )
 
     try:
         dataset = load_dataset(args.dataset)
-    except (FileNotFoundError, ValueError) as e:
-        print(f"Lỗi: {e}", file=sys.stderr)
-        sys.exit(1)
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"Lỗi dataset: {exc}", file=sys.stderr)
+        return 1
 
-    results = asyncio.run(run_evaluation(dataset, args.top_k, integration_mode))
+    results = asyncio.run(
+        run_evaluation(
+            dataset,
+            top_k=args.top_k,
+            integration_mode=integration_mode,
+        )
+    )
 
     print_table(results)
-    print_summary(results, args.top_k, integration_mode)
+    all_passed = print_summary(
+        results,
+        top_k=args.top_k,
+        integration_mode=integration_mode,
+    )
+
+    return 0 if all_passed else 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
