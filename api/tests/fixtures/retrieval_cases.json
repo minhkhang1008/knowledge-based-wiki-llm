@@ -2,61 +2,72 @@
   "_meta": {
     "description": "Fixture riêng cho scripts/evaluate_retrieval.py — KHÔNG phải shared mock dùng chung cho unit test khác.",
     "data_type": "synthetic",
-    "note": "Dữ liệu synthetic, tạo tạm để không phải chờ dữ liệu thật từ Squad 1. Khi có article/source thật đã được index vào ChromaDB, thay nội dung 'cases' bên dưới bằng câu hỏi + expected_source thật tương ứng — KHÔNG cần đổi logic trong evaluate_retrieval.py."
+    "note": "Dữ liệu synthetic khớp với FAKE_CORPUS trong evaluate_retrieval.py. Khi có dữ liệu thật từ Squad 1, chỉ thay nội dung cases mà không cần đổi logic đánh giá."
   },
   "cases": [
     {
-      "question": "Người yêu cũ còn yêu tôi không?",
+      "question": "Điều kiện hưởng chế độ thai sản là gì?",
       "expected_source": "article_001",
       "expect_no_context": false
     },
     {
-      "question": "Sẽ có 1 Asuna Yuuki cho tôi chứ?",
+      "question": "Mức đóng bảo hiểm xã hội bắt buộc được tính như thế nào?",
       "expected_source": "article_002",
       "expect_no_context": false
     },
     {
-      "question": "Làm sao để tán cosplayer?",
+      "question": "Người lao động được nghỉ phép năm tối thiểu như thế nào?",
       "expected_source": "article_003",
       "expect_no_context": false
     },
     {
-      "question": "Tôi thích gái tóc trắng mắt đỏ?",
+      "question": "Hồ sơ cấp lại sổ bảo hiểm xã hội gồm những giấy tờ gì?",
       "expected_source": "article_004",
       "expect_no_context": false
     },
     {
-      "question": "Cáo tuyết dễ thương?",
+      "question": "Thời gian thử việc tối đa là bao lâu?",
       "expected_source": "article_005",
       "expect_no_context": false
     },
     {
-      "question": "Cách chế tạo ICBM?",
+      "question": "Người lao động nghỉ khi kết hôn có được hưởng lương không?",
       "expected_source": "hr_policy_2024.pdf",
       "expect_no_context": false
     },
     {
-      "question": "Cấu tạo súng trường tấn công tầm trung?",
+      "question": "Chính sách làm việc từ xa áp dụng cho những phòng ban nào?",
       "expected_source": "hr_policy_2024.pdf",
       "expect_no_context": false
     },
     {
-      "question": "Tàu ngầm hạt nhân lớn nhất thế giới?",
+      "question": "Quy trình phê duyệt chi phí công tác cần những gì?",
       "expected_source": "finance_guideline.docx",
       "expect_no_context": false
     },
     {
-      "question": "Cristiano Ronaldo có phải người vĩ đại nhất thế giưới không?",
+      "question": "Quy định về ngày phép năm là gì?",
+      "expected_source": "article_003",
+      "expect_no_context": false,
+      "filters": {
+        "article_id": "article_003"
+      }
+    },
+    {
+      "question": "Công ty có chính sách remote hay không?",
+      "expected_source": "hr_policy_2024.pdf",
+      "expect_no_context": false,
+      "filters": {
+        "source_file": "hr_policy_2024.pdf"
+      }
+    },
+    {
+      "question": "Thủ đô của Nhật Bản là thành phố nào?",
       "expected_source": null,
       "expect_no_context": true
     },
     {
-      "question": "Đội tuyển bóng đá Bồ Đào Nha vô địch World Cup năm nào?",
-      "expected_source": null,
-      "expect_no_context": true
-    },
-    {
-      "question": "NH Minh Khang và THSON có bị đồng tính không thế?",
+      "question": "Công thức nấu món phở bò như thế nào?",
       "expected_source": null,
       "expect_no_context": true
     }
