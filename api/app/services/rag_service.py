@@ -22,7 +22,7 @@ async def execute_llm_generation(prompt: str, raw_chunks: list[dict]) -> dict:
       found_labels = re.findall(r"\[S(\d+)\]", raw_answer)
 
       # Lọc các nhãn thừa
-      answer_labels = set(int(m) for m in found_labels)
+      answer_labels = sorted({int(label) for label in found_labels})
 
       valid_sources = []
 
