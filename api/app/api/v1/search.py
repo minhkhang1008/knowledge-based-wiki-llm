@@ -1,30 +1,39 @@
-from fastapi import APIRouter, Request, status
-from fastapi.responses import JSONResponse
-import httpx
+from typing import Annotated
 
-from app.schemas.AskResponse import AskResponse, DataResponse  
-from app.services.services_vector_db import semantic_search_logic
+from fastapi import APIRouter
+from pydantic import BaseModel, StringConstraints
+
 from app.schemas.SearchData import SearchData
 from app.schemas.SearchResponse import SearchResponse
-from app.schemas.ErrorResponse import ErrorResponse
-from app.schemas.ErrorFormat import ErrorFormat
-from app.schemas.SourceResponse import SourceResponse
+from app.services.services_vector_db import semantic_search_logic
+
 
 router = APIRouter()
 
-#Pydantic model
-# class SearchRequest(BaseModel):
-#     query: str = Field(..., min_length=1, description="Câu truy vấn tìm kiếm ngữ nghĩa")
+QueryText = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True,
+        min_length=2,
+    ),
+]
 
-@router.get("/api/search", response_model=SearchResponse)
-async def search(request: str, top_k: int = 5, filters: dict[str, str] | None = None):
-    chunks = await semantic_search_logic(request, top_k, filters)
 
-    # chunks là list[dict] với keys: text, article_id, source_file, page_number
+class SearchRequest(BaseModel):
+    query: QueryText
+
+
+@router.post("/api/search", response_model=SearchResponse)
+async def search(request: SearchRequest):
+    chunks = await semantic_search_logic(request.query)
 
     return SearchResponse(
-        success = True,
-        data = SearchData(results = chunks),
-        message = "Tìm kiếm thành công" if chunks else "Không tìm thấy kết quả phù hợp",
-        error = None
+        success=True,
+        data=SearchData(results=chunks),
+        message=(
+            "Tìm kiếm thành công"
+            if chunks
+            else "Không tìm thấy kết quả phù hợp"
+        ),
+        error=None,
     )
