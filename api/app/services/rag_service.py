@@ -1,8 +1,17 @@
-from app.core.ollama_client import generate_chat, generate_embedding
-from app.services.services_vector_db import search_similar_chunks
-from app.services.prompt_builder import build_rag_prompt
 import os
 import re
+from sqlite3 import OperationalError
+
+from app.core.exceptions import (
+    RAG_ChromaError,
+    RAG_InvalidDimensionException,
+    RAG_OperationalError,
+    RAG_VectorDBError,
+)
+from app.core.ollama_client import generate_chat, generate_embedding
+from app.services.prompt_builder import build_rag_prompt
+from app.services.services_vector_db import search_similar_chunks
+from chromadb.errors import ChromaError, InvalidDimensionException
 
 RAG_HISTORY_LIMIT = int(os.getenv("RAG_HISTORY_LIMIT", "6"))
 
@@ -51,7 +60,17 @@ async def process_rag_pipeline(
       question: str, chat_history: list[dict] | None = None
  ) -> dict:
       embedded_text = await generate_embedding(question)
-      document = search_similar_chunks(embedded_text, top_k=5)
+
+      try:
+            document = search_similar_chunks(embedded_text, top_k = 5)
+      except InvalidDimensionException:
+            raise RAG_InvalidDimensionException("Lỗi hong phù hợp kích thước")
+      except OperationalError:
+            raise RAG_OperationalError("Lỗi SQLite")
+      except ChromaError:
+            raise RAG_ChromaError("Lỗi ChromaDB")
+      except Exception:
+            raise RAG_VectorDBError("Lỗi VectorDB")
 
       if not document:
             return {
