@@ -226,3 +226,17 @@ Ghi chú cho Pydantic Schema: `question` bắt buộc phải là String, không 
   "error" : null
 }
 ~~~
+
+
+## 4. Quy định mã lỗi  (Error Contract)
+
+### 4.1. Request không hợp lệ (Response - 422 Unprocessable Entity)
+### Dữ liệu trả về khi thất bại
+~~~json
+{
+  "success": false,
+  "data": null,
+  "message": "",
+  "error" : null
+}
+~~~

@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from app.api.v1 import articles, qa, search, wiki_articles
+from app.api.v1 import articles, qa, search, wiki_articles, stats
 from app.core.exceptions import AIModelOfflineException
 from app.schemas.ErrorFormat import ErrorFormat
 from app.schemas.ErrorResponse import ErrorResponse
@@ -26,6 +26,7 @@ app.include_router(
     prefix="/api/articles",
     tags=["Wiki Articles"],
 )
+app.include_router(stats.router, tags=["Stats"])
 
 
 @app.get("/")
