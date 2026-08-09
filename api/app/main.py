@@ -42,18 +42,18 @@ async def ai_model_offline_exception(
     exc: AIModelOfflineException,
 ):
     response = ErrorResponse(
-        success = False,
-        data = None,
-        message = "test",
-        error = ErrorFormat(
-            code = "test",
-            detail = "test"
-        )
+        success=False,
+        data=None,
+        message="Hệ thống AI hiện đang ngoại tuyến",
+        error=ErrorFormat(
+            code="AI_ENGINE_OFFLINE",
+            detail=str(exc),
+        ),
     )
 
     return JSONResponse(
-        status_code = "test", #500 if str(exc) == "Lỗi không xác định khi kết nối Ollama" else 503,
-        content = response
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content=response.model_dump(),
     )
 
 
@@ -67,7 +67,7 @@ async def validation_exception_handler(
         data=None,
         message="Request sai định dạng dữ liệu",
         error=ErrorFormat(
-            code="VALIDATION_ERROR",
+            code="422 UNPROCESSABLE_CONTENT",
             detail=str(exc.errors()),
         ),
     )

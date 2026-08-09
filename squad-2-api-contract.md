@@ -13,10 +13,15 @@
 * **Phương thức (Method):** `GET`
 * **Chức năng:** Lấy danh sách các bài viết wiki trong hệ thống. Hỗ trợ tìm kiếm theo từ khóa.
 
-### Dữ liệu gửi lên (Query Parameters)
-Định dạng: `URL Parameters`
-
-Ghi chú: `search` và `category` là không bắt buộc (Optional). Nếu để trống, hệ thống sẽ trả về toàn bộ danh sách bài viết.
+### Dữ liệu gửi lên
+```json
+{
+  "skip" : 0,
+  "limit" : 20,
+  "search" : "Hướng dẫn docker"
+}
+```
+#### Các biến skip, limit, search là Optional, có thể điền hoặc không
 
 ### Dữ liệu trả về khi thành công (Response - 200 OK)
 ```json
@@ -25,8 +30,12 @@ Ghi chú: `search` và `category` là không bắt buộc (Optional). Nếu đ�
   "data": [
     {
       "id": "wiki_01",
+      "document_id" : "docker_01",
       "title": "Hướng dẫn Docker cơ bản",
-      "category": "devops"
+      "content" : "Hướng dẫn sử dụng docker dành cho người mới",
+      "source_file" : "docker_01",
+      "created_at" : "2026-08-07 20:22:36",
+      "updated_at" : "2026-08-07 20:22:36"
     }
   ],
   "message": "Lấy danh sách bài viết thành công.",
@@ -37,25 +46,26 @@ Ghi chú: `search` và `category` là không bắt buộc (Optional). Nếu đ�
 ---
 
 ### 1.2. API Chi Tiết Bài Viết
-* **Địa chỉ (URL):** `/api/articles/{id}`
+* **Địa chỉ (URL):** `/api/articles/{article_id}`
 * **Phương thức (Method):** `GET`
 * **Chức năng:** Lấy thông tin chi tiết đầy đủ của một bài viết wiki cụ thể dựa trên ID.
 
 ### Dữ liệu gửi lên (Path Parameters)
-Định dạng: `string` trong URL path.
 
-Ghi chú cho Pydantic Schema: ID truyền vào bắt buộc phải đúng định dạng string và tồn tại trong cơ sở dữ liệu hệ thống.
+* Chọn giá trị cho **{article_id}** ở trên URL
 
 ### Dữ liệu trả về khi thành công (Response - 200 OK)
 ```json
 {
   "success": true,
   "data": {
-    "id": "art_01",
+    "id": "wiki_01",
+    "document_id" : "docker_01",
     "title": "Hướng dẫn Docker cơ bản",
-    "content": "# Docker là gì?\nDocker là một nền tảng...",
-    "category": "devops",
-    "author": "Nguyen Van A"
+    "content" : "Hướng dẫn sử dụng docker dành cho người mới",
+    "source_file" : "docker_01",
+    "created_at" : "2026-08-07 20:36:36",
+    "updated_at" : "2026-08-07 20:36:36"
   },
   "message": "Lấy chi tiết bài viết thành công.",
   "error" : null
@@ -74,13 +84,14 @@ Ghi chú cho Pydantic Schema: ID truyền vào bắt buộc phải đúng địn
 
 ```json
 {
-  "title": "Tổng quan về RAG",
-  "content": "# RAG là gì?\nRetrieval-Augmented Generation...",
-  "category": "ai"
+  "document_id" : "docker_67",
+  "title" : "Hướng dẫn docker cơ bản với 67 bước",
+  "content" : "# Hướng dẫn docker cơ bản với 67 bước",
+  "source_file" : "docker_6767"
 }
 ```
 
-Ghi chú cho Pydantic Schema: `title` bắt buộc từ 5 ký tự trở lên. `content` lưu trữ định dạng Markdown dưới dạng chuỗi kí tự (String). `category` bắt buộc để phân loại bài viết.
+Ghi chú: Tất cả các biến đều yêu cầu từ 1 kí tự trở lên. `content` lưu trữ định dạng Markdown dưới dạng chuỗi kí tự (String).
 
 ### Dữ liệu trả về khi thành công (Response - 201 Created)
 ```json
@@ -88,8 +99,12 @@ Ghi chú cho Pydantic Schema: `title` bắt buộc từ 5 ký tự trở lên. `
   "success": true,
   "data": {
     "id": "wiki_03",
-    "title": "Tổng quan về RAG",
-    "category": "ai",
+    "document_id" : "docker_67",
+    "title" : "Hướng dẫn docker cơ bản với 67 bước",
+    "content" : "# Hướng dẫn docker cơ bản với 67 bước",
+    "source_file" : "docker_6767"
+    "created_at" : "2026-08-07 20:36:36",
+    "updated_at" : "2026-08-07 20:36:36"
   },
   "message": "Tạo bài viết mới thành công.",
   "error" : null
@@ -99,32 +114,92 @@ Ghi chú cho Pydantic Schema: `title` bắt buộc từ 5 ký tự trở lên. `
 ---
 
 ###  1.4. API Cập Nhật Bài Viết
-* **Địa chỉ (URL):** `/api/articles/{id}`
+* **Địa chỉ (URL):** `/api/articles/{article_id}`
 * **Phương thức (Method):** `PUT`
 * **Chức năng:** Chỉnh sửa và cập nhật nội dung mới cho một bài viết wiki đã tồn tại dựa trên ID.
 
 ### Dữ liệu gửi lên (Request Body)
-Định dạng: `application/json`
+
+* Chọn giá trị cho **{article_id}** ở trên URL
 
 ```json
 {
   "title": "Tổng quan về RAG (Cập nhật)",
   "content": "# RAG và Ollama\nNội dung đã được chỉnh sửa...",
-  "category": "ai"
+  "source_file" : "docker_67"
 }
 ```
 
-Ghi chú cho Pydantic Schema: Các trường hợp gửi lên trong body sẽ đè lên dữ liệu cũ của bài viết có `id` tương ứng trên thanh URL.
+Ghi chú cho Pydantic Schema: Các trường hợp gửi lên trong body sẽ đè lên dữ liệu cũ của bài viết có `article_id` tương ứng trên thanh URL.
 
 ### Dữ liệu trả về khi thành công (Response - 200 OK)
 ```json
 {
   "success": true,
   "data": {
-    "id": "art_03",
-    "title": "Tổng quan về RAG (Cập nhật)",
+    "id": "wiki_03",
+    "document_id" : "docker_36",
+    "title" : "Tổng quan về RAG (Cập nhật)",
+    "content" : "# RAG và Ollama\nNội dung đã được chỉnh sửa...",
+    "source_file" : "docker_67"
+    "created_at" : "2026-08-07 20:36:36",
+    "updated_at" : "2026-08-07 20:36:36"
   },
-  "message": "Cập nhật nội dung bài viết thành công."
+  "message": "Cập nhật nội dung bài viết thành công.",
+  "error" : null
+}
+```
+
+### 1.5. API Xóa Bài Viết:
+* **Địa chỉ (URL):** `/api/articles/{article_id}`
+* **Phương thức (Method):** `DELETE`
+* **Chức năng:** Xóa bài viết
+
+### Dữ liệu gửi lên (Request Body)
+* Chọn giá trị cho **{article_id}** ở trên URL
+
+### Dữ liệu trả về khi thành công (Response - 200 OK)
+```json
+{
+  "success": true,
+  "data": null,
+  "message": "Xóa article thành công",
+  "error" : null
+}
+```
+
+### 1.6. API Upsert Bài Viết:
+* **Địa chỉ (URL):** `/api/articles/by-document/{document_id}`
+* **Phương thức (Method):** `PUT`
+* **Chức năng:** Tạo hoặc cập nhật bài viết dành cho developer
+
+### Dữ liệu gửi lên (Request Body)
+
+* Chọn giá trị cho **{document_id}** ở trên URL
+
+```json
+{
+  "title" : "Hướng dẫn sử dụng docker với 36 bước",
+  "content" : "# Hướng dẫn sử dụng docker với 36 bước",
+  "source_file" : "docker36"
+}
+```
+
+### Dữ liệu trả về khi thành công (Response - 200 OK)
+```json
+{
+  "success": true,
+  "data": {
+    "id": "wiki_03",
+    "document_id" : "docker_36",
+    "title" : "Hướng dẫn sử dụng docker với 36 bước",
+    "content" : "Hướng dẫn sử dụng docker với 36 bước",
+    "source_file" : "docker36"
+    "created_at" : "2026-08-07 20:36:36",
+    "updated_at" : "2026-08-07 20:36:36"
+  },
+  "message": "Upsert article thành công ",
+  "error" : null
 }
 ```
 
@@ -154,13 +229,14 @@ Ghi chú cho Pydantic Schema: `query` là bắt buộc, không được để tr
   "success": true,
   "data": [
     {
-      "id": "wiki_01",
-      "title": "Hướng dẫn Docker cơ bản",
-      "score": 0.92,
-      "match_type": "semantic"
+      "text" : "cách deploy docker lên server",
+      "article_id" : "docker_36",
+      "source_file" : "docker36",
+      "page_number" : 36,
+      "distant" : 0.36
     }
   ],
-  "message": "Tìm kiếm kết quả hoàn tất.",
+  "message": "Tìm kiếm thành công",
   "error" : null
 }
 ```
@@ -177,11 +253,15 @@ Ghi chú cho Pydantic Schema: `query` là bắt buộc, không được để tr
 
 ```json
 {
-  "question": "Quy định về số ngày nghỉ phép năm 2025 của nhân viên như thế nào?"
+  "question": "Quy định về số ngày nghỉ phép năm 2025 của nhân viên như thế nào?",
+  "chat_history" : [
+    {
+      "role" : "user",
+      "content" : "Quy định về số ngày nghỉ phép năm 2025 của nhân viên như thế nào?"
+    }
+  ]
 }
 ```
-
-Ghi chú cho Pydantic Schema: `question` bắt buộc phải là String, không được để trống và có độ dài tối thiểu là 5 ký tự để tránh người dùng gửi chuỗi rỗng.
 
 ### Dữ liệu trả về khi thành công (Response - 200 OK)
 ```json
@@ -191,11 +271,14 @@ Ghi chú cho Pydantic Schema: `question` bắt buộc phải là String, không 
     "answer": "Theo quy định, nhân viên có 12 ngày nghỉ phép năm...",
     "sources": [
       {
-        "id": "wiki_05",
-        "title": "Quy chế nhân sự 2025",
-        "url": "/articles/wiki_05"
+        "text" : "Quy chế nhân sự 2025",
+        "article_id": "wiki_05",
+        "source_file": "/articles/wiki_05",
+        "page_number" : 36,
+        "distance" : 0.36
       }
-    ]
+    ],
+    "no_answer_reason" : null
   },
   "message": "Xử lý câu hỏi RAG thành công.",
   "error" : null
@@ -220,7 +303,8 @@ Ghi chú cho Pydantic Schema: `question` bắt buộc phải là String, không 
   "success": true,
   "data": {
     "total_articles": 142,
-    "total_ai_queries": 3420
+    "total_qa_logs": 3420,
+    "total_indexed_chunks" : 3000
   },
   "message": "Lấy dữ liệu thống kê thành công.",
   "error" : null
@@ -236,7 +320,66 @@ Ghi chú cho Pydantic Schema: `question` bắt buộc phải là String, không 
 {
   "success": false,
   "data": null,
-  "message": "",
-  "error" : null
+  "message": "Request sai định dạng dữ liệu",
+  "error" : {
+    "code" : "422 UNPROCESSABLE_CONTENT",
+    "detail" : "..."
+  }
+}
+~~~
+
+### 4.2 Article không tồn tại (Response - 404 Not Found)
+### Dữ liệu trả về khi thất bại
+~~~json
+{
+  "success": false,
+  "data": null,
+  "message": "Tìm kiếm article thất bại",
+  "error" : {
+    "code" : "404 Not Found",
+    "detail" : "Article không tồn tại"
+  }
+}
+~~~
+
+### 4.3 Trùng document_id (Response - 409 Conflict)
+### Dữ liệu trả về khi thất bại
+~~~json
+{
+  "success": false,
+  "data": null,
+  "message": "Tạo article thất bại",
+  "error" : {
+    "code" : "400 Conflict",
+    "detail" : "Trùng document_id"
+  }
+}
+~~~
+
+### 4.4 Ollama ngoại tuyến (Response - 503 Service Unavailable)
+### Dữ liệu trả về khi thất bại
+~~~json
+{
+  "success": false,
+  "data": null,
+  "message": "Hệ thống AI hiện đang ngoại tuyến",
+  "error" : {
+    "code" : "503 Service Unavailable",
+    "detail" : "Ollama ngoại tuyến hoặc chưa kết nối"
+  }
+}
+~~~
+
+### 4.5 Lỗi không dự kiến (Response - 500 Internal Server Error)
+### Dữ liệu trả về khi thất bại
+~~~json
+{
+  "success": false,
+  "data": null,
+  "message": "Xảy ra lỗi không dự kiến",
+  "error" : {
+    "code" : "500 Internal Server Error",
+    "detail" : "Lỗi không xác định"
+  }
 }
 ~~~
