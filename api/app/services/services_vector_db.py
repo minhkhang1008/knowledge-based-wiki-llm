@@ -21,23 +21,37 @@ RAG_DISTANCE_THRESHOLD = float(os.getenv("RAG_DISTANCE_THRESHOLD", 0.7))
 SUPPORTED_FILTER_FIELDS = {"article_id", "source_file"}
 
 
+def _validate_top_k(top_k: int) -> None:
+    if not isinstance(top_k, int) or isinstance(top_k, bool) or top_k <= 0:
+        raise ValueError("top_k phải lớn hơn 0.")
+
+
 def _build_where_clause(filters: dict[str, str] | None) -> dict | None:
     """
     Chuyển filters (dict đơn giản) thành cú pháp `where` hợp lệ của ChromaDB.
 
     - filters None hoặc rỗng -> trả về None (không gửi where vào query).
-    - Chỉ nhận các field trong SUPPORTED_FILTER_FIELDS (article_id, source_file);
-      field khác hoặc value rỗng/None sẽ bị bỏ qua.
-    - 1 field hợp lệ -> {"field": {"$eq": value}}
-    - >1 field hợp lệ -> {"$and": [{"field1": {"$eq": v1}}, {"field2": {"$eq": v2}}]}
+    - Chỉ hỗ trợ các field trong SUPPORTED_FILTER_FIELDS (article_id, source_file);
+      field nào ngoài danh sách này -> raise ValueError, không âm thầm bỏ qua,
+      để tránh caller tưởng đã lọc theo field đó nhưng thực chất không có filter.
+    - Trong các field hợp lệ, value rỗng/None -> bỏ qua field đó (coi như không lọc).
+    - 1 field hợp lệ có value -> {"field": {"$eq": value}}
+    - >1 field hợp lệ có value -> {"$and": [{"field1": {"$eq": v1}}, {"field2": {"$eq": v2}}]}
     """
     if not filters:
         return None
 
+    unsupported = [field for field in filters if field not in SUPPORTED_FILTER_FIELDS]
+    if unsupported:
+        supported = ", ".join(sorted(SUPPORTED_FILTER_FIELDS))
+        raise ValueError(
+            f"Filter không được hỗ trợ: {', '.join(unsupported)}. Chỉ hỗ trợ: {supported}."
+        )
+
     clauses = [
         {field: {"$eq": value}}
         for field, value in filters.items()
-        if field in SUPPORTED_FILTER_FIELDS and value
+        if value
     ]
 
     if not clauses:
@@ -54,6 +68,8 @@ def search_similar_chunks(
     top_k: int = 5,
     filters: dict[str, str] | None = None,
 ) -> list[dict]:
+
+    _validate_top_k(top_k)
 
     output: list[dict] = []
 
@@ -109,6 +125,10 @@ async def semantic_search_logic(
     top_k: int = 5,
     filters: dict[str, str] | None = None,
 ) -> list[dict]:
+    # Validate trước khi gọi embedding (Ollama) để tránh tốn 1 lần gọi network
+    # không cần thiết khi top_k đã sai ngay từ đầu.
+    _validate_top_k(top_k)
+
     # Bước 1: Gọi hàm của thành viên khác để đổi chữ thành số
     vector = await generate_embedding(query_text)
 
