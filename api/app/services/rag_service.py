@@ -31,7 +31,9 @@ async def execute_llm_generation(prompt: str, raw_chunks: list[dict]) -> dict:
       found_labels = re.findall(r"\[S(\d+)\]", raw_answer)
 
       # Lọc các nhãn thừa
-      answer_labels = sorted({int(label) for label in found_labels})
+      answer_labels = list(
+          dict.fromkeys(int(label) for label in found_labels)
+      )
 
       valid_sources = []
 
@@ -78,12 +80,37 @@ async def process_rag_pipeline(
                   "sources": [],
                   "no_answer_reason": "insufficient_context",
             }
-      
-      if (chat_history != [] and chat_history != None):
-            recent_history = (chat_history or [])[-RAG_HISTORY_LIMIT:]
-      else:
-            recent_history = []
 
-      prompt = build_rag_prompt(question, document, recent_history)
+      recent_history = []
 
-      return await execute_llm_generation(prompt, document)
+      for message in (chat_history or [])[-RAG_HISTORY_LIMIT:]:
+            if hasattr(message, "model_dump"):
+                  message = message.model_dump()
+
+            if not isinstance(message, dict):
+                  continue
+
+            role = message.get("role")
+            content = message.get("content")
+
+            if role not in {"user", "assistant"}:
+                  continue
+
+            if not isinstance(content, str) or not content.strip():
+                  continue
+
+            recent_history.append({
+                  "role": role,
+                  "content": content.strip(),
+            })
+
+      prompt = build_rag_prompt(
+            question,
+            document,
+            recent_history,
+      )
+
+      return await execute_llm_generation(
+            prompt,
+            document,
+      )
