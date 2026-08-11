@@ -64,7 +64,7 @@ async def list_articles(
     safe_skip = max(skip,1)
     safe_limit = min(max(limit,1),100)
     try: 
-        stmt = select(Article).offset(skip).limit(limit)
+        stmt = select(Article).offset(safe_skip).limit(safe_limit)
         if search and search.strip():
             stmt = stmt.where(Article.title.like(f"%{search}%"))
         result = await session.execute(stmt)
