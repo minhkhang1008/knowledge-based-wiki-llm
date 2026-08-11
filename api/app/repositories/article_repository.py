@@ -18,9 +18,7 @@ from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.exc import IntegrityError
 
 class DuplicateDocumentError(Exception):
-    """Raised when creating an Article with an existing document_id."""
-
-
+   """Raised when creating an Article with an existing document_id."""
 def _to_dict(data: Any) -> dict[str, Any]:
     if isinstance(data, Mapping):
         return dict(data)
@@ -63,11 +61,11 @@ async def list_articles(
     limit: int = 20,
     search: str | None = None,
 ) -> list[Article]:
+    safe_skip = max(skip,1)
+    safe_limit = min(max(limit,1),100)
     try: 
-        safe_skip = max(skip, 0)
-        safe_limit = min(max(limit, 1), 100)
-        stmt = select(Article).offset(safe_skip).limit(safe_limit)
-        if search is not None:
+        stmt = select(Article).offset(skip).limit(limit)
+        if search and search.strip():
             stmt = stmt.where(Article.title.like(f"%{search}%"))
         result = await session.execute(stmt)
         return list(result.scalars().all())
@@ -133,7 +131,6 @@ async def delete_article(
         stmt = delete(Article).where(Article.id == article_id).returning(Article.id)
         result = await session.execute(stmt)
         if result.scalar_one_or_none() is None:
-            await session.rollback()
             return False
         await session.commit()
         return True
