@@ -4,13 +4,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.repositories.article_repository import (
-    DuplicateDocumentError,
-    create_article,
-    delete_article,
     get_article_by_id,
-    list_articles,
-    update_article,
-    upsert_article_by_document_id,
+    list_articles
 )
 from app.schemas.article import (
     ArticleCreate,
@@ -19,6 +14,12 @@ from app.schemas.article import (
 )
 from app.schemas.ErrorFormat import ErrorFormat
 from app.schemas.ErrorResponse import ErrorResponse
+from app.services.article_lifecycle_service import (
+    create_article_lifecycle,
+    update_article_lifecycle,
+    delete_article_lifecycle,
+    upsert_article_lifecycle
+)
 
 
 router = APIRouter()
@@ -52,34 +53,17 @@ async def create_article_endpoint(
     data: ArticleCreate,
     db: AsyncSession = Depends(get_db),
 ):
-    try:
-        article = await create_article(db, data)
-
-        return JSONResponse(
-            status_code=status.HTTP_201_CREATED,
-            content={
-                "success": True,
-                "data": serialize_article(article),
-                "message": "Tạo article thành công",
-                "error": None,
-            },
-        )
-
-    except DuplicateDocumentError as exc:
-        response = ErrorResponse(
-            success=False,
-            data=None,
-            message="Article đã tồn tại",
-            error=ErrorFormat(
-                code="DUPLICATE_DOCUMENT",
-                detail=str(exc),
-            ),
-        )
-
-        return JSONResponse(
-            status_code=status.HTTP_409_CONFLICT,
-            content=response.model_dump(),
-        )
+    article = await create_article_lifecycle(db, data)
+    
+    return JSONResponse(
+        status_code=status.HTTP_201_CREATED,
+        content={
+            "success": True,
+            "data": serialize_article(article),
+            "message": "Tạo article thành công",
+            "error": None,
+        },
+    )
 
 
 @router.get("")
@@ -131,7 +115,7 @@ async def update_article_endpoint(
     data: ArticleUpdate,
     db: AsyncSession = Depends(get_db),
 ):
-    article = await update_article(db, article_id, data)
+    article = await update_article_lifecycle(db, article_id, data)
 
     if article is None:
         return article_not_found_response(article_id)
@@ -149,7 +133,7 @@ async def delete_article_endpoint(
     article_id: str,
     db: AsyncSession = Depends(get_db),
 ):
-    deleted = await delete_article(db, article_id)
+    deleted = await delete_article_lifecycle(db, article_id)
 
     if not deleted:
         return article_not_found_response(article_id)
@@ -171,7 +155,7 @@ async def upsert_article_endpoint(
     payload = data.model_dump()
     payload["document_id"] = document_id
 
-    article = await upsert_article_by_document_id(
+    article = await upsert_article_lifecycle(
         db,
         payload,
     )

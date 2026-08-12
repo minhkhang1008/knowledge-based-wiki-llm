@@ -320,9 +320,9 @@ Ghi chú cho Pydantic Schema: `query` là bắt buộc, không được để tr
 {
   "success": false,
   "data": null,
-  "message": "Request sai định dạng dữ liệu",
+  "message": "Request sai",
   "error" : {
-    "code" : "422 UNPROCESSABLE_CONTENT",
+    "code" : "INVALID_REQUEST",
     "detail" : "..."
   }
 }
@@ -334,9 +334,9 @@ Ghi chú cho Pydantic Schema: `query` là bắt buộc, không được để tr
 {
   "success": false,
   "data": null,
-  "message": "Tìm kiếm article thất bại",
+  "message": "Article không tồn tại",
   "error" : {
-    "code" : "404 Not Found",
+    "code" : "ARTICLE_NOT_FOUND",
     "detail" : "Article không tồn tại"
   }
 }
@@ -348,10 +348,10 @@ Ghi chú cho Pydantic Schema: `query` là bắt buộc, không được để tr
 {
   "success": false,
   "data": null,
-  "message": "Tạo article thất bại",
+  "message": "Trùng document_id",
   "error" : {
-    "code" : "400 Conflict",
-    "detail" : "Trùng document_id"
+    "code" : "DUPLICATE_DOCUMENT_ERROR",
+    "detail" : "..."
   }
 }
 ~~~
@@ -376,10 +376,10 @@ Ghi chú cho Pydantic Schema: `query` là bắt buộc, không được để tr
 {
   "success": false,
   "data": null,
-  "message": "Xảy ra lỗi không dự kiến",
+  "message": "Lỗi không dự kiến",
   "error" : {
-    "code" : "500 Internal Server Error",
-    "detail" : "Lỗi không xác định"
+    "code" : "UNEXPECTED_ERROR",
+    "detail" : "..."
   }
 }
 ~~~
