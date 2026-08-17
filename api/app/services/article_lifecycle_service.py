@@ -12,26 +12,32 @@ from app.repositories.article_repository import (
     upsert_article_by_document_id,
 )
 from app.services.services_vector_db import collection
+from app.services.chunking.recursive import recursive_split
 from app.services.vector_index_maintenance import delete_chunks_by_article_id
 
 
 async def index_article_to_chroma(article: Any) -> None:
     """Replace an article's searchable vector entry after it changes."""
     content = article.content.strip()
-    embedding = await generate_embedding(content)
-    if not embedding:
-        raise ValueError("Không thể tạo embedding cho article rỗng.")
+    chunks = recursive_split(content)
+    embeddings = []
+    for chunk in chunks:
+        embedding = await generate_embedding(chunk)
+        if not embedding:
+            raise ValueError("Không thể tạo embedding cho article rỗng.")
+        embeddings.append(embedding)
 
     await asyncio.to_thread(
         collection.upsert,
-        ids=[str(article.id)],
-        embeddings=[embedding],
-        documents=[content],
+        ids=[f"{article.id}:{index}" for index, _ in enumerate(chunks)],
+        embeddings=embeddings,
+        documents=chunks,
         metadatas=[
             {
                 "article_id": str(article.id),
                 "source_file": article.source_file,
             }
+            for _ in chunks
         ],
     )
 
