@@ -160,7 +160,8 @@ Ghi chú cho Pydantic Schema: `query` là bắt buộc, không được để tr
       "match_type": "semantic"
     }
   ],
-  "message": "Tìm kiếm kết quả hoàn tất."
+  "message": "Tìm kiếm kết quả hoàn tất.",
+  "error" : null
 }
 ```
 
@@ -196,7 +197,8 @@ Ghi chú cho Pydantic Schema: `question` bắt buộc phải là String, không 
       }
     ]
   },
-  "message": "Xử lý câu hỏi RAG thành công."
+  "message": "Xử lý câu hỏi RAG thành công.",
+  "error" : null
 }
 ```
 

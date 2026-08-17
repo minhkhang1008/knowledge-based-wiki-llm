@@ -1,20 +1,9 @@
 import ollama, httpx, asyncio
 from ollama import AsyncClient
-from app.core.exceptions import AIModelOfflineException
+from app.core.exceptions import AIModelOfflineException, RequestTimeoutError, ModelNotFoundError, InvalidResponseError, EmptyEmbeddingError
+                                
 
 client = AsyncClient()
-
-class RequestTimeoutError(Exception):
-      # Bắt lỗi Timeout
-      pass
-
-class ModelNotFoundError(Exception):
-      # Bắt lỗi Model hong tồn tại
-      pass
-
-class InvalidResponseError(Exception):
-      # Bắt lỗi response hong hợp lệ
-      pass
 
 #Cấu hình OLLAMA Client
 async def chat():
@@ -47,7 +36,7 @@ async def generate_embedding(text: str) -> list[float]:
                   content = getattr(response, "embedding", None)
 
             if (not isinstance(content, list) or not content):
-                  raise InvalidResponseError("Response không hợp lệ")
+                  raise EmptyEmbeddingError("Embedding rỗng")
             
             for embedded_text in content:
                   if (
