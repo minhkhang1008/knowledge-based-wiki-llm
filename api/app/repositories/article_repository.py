@@ -11,11 +11,13 @@ from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
+
 from app.models.article import Article
-from sqlalchemy.ext.asyncio import AsyncSession 
-from sqlalchemy import select, update, delete
+from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+
 
 class DuplicateDocumentError(Exception):
     """Raised when creating an Article with an existing document_id."""
@@ -39,20 +41,20 @@ async def get_article_by_id(
         stmt = select(Article).where(Article.id == article_id)
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
-    except Exception: 
+    except Exception:
         await session.rollback()
         raise
-    
-    
+
+
 async def get_article_by_document_id(
     session: AsyncSession,
     document_id: str,
 ) -> Article | None:
-    try: 
+    try:
         stmt = select(Article).where(Article.document_id == document_id)
         result = await session.execute(stmt)
-        return  result.scalar_one_or_none()
-    except Exception: 
+        return result.scalar_one_or_none()
+    except Exception:
         await session.rollback()
         raise
 
@@ -63,27 +65,28 @@ async def list_articles(
     limit: int = 20,
     search: str | None = None,
 ) -> list[Article]:
-    try: 
-        safe_skip = max(skip, 0)
-        safe_limit = min(max(limit, 1), 100)
+    safe_skip = max(skip, 0)
+    safe_limit = min(max(limit, 1), 100)
+    search_term = (search or "").strip()
+    try:
         stmt = select(Article).offset(safe_skip).limit(safe_limit)
-        if search is not None:
-            stmt = stmt.where(Article.title.like(f"%{search}%"))
+        if search_term:
+            stmt = stmt.where(Article.title.like(f"%{search_term}%"))
         result = await session.execute(stmt)
         return list(result.scalars().all())
-    except Exception: 
+    except Exception:
         await session.rollback()
         raise
-    
-    
+
+
 async def create_article(
     session: AsyncSession,
     data: Any,
 ) -> Article:
-    payload = _to_dict(data) 
+    payload = _to_dict(data)
     document_id = str(payload["document_id"])
     now = datetime.now(timezone.utc)
-    try: 
+    try:
         stmt = insert(Article).values(
             id=str(uuid4()),
             document_id=document_id,
@@ -99,9 +102,9 @@ async def create_article(
     except IntegrityError:
         await session.rollback()
         raise DuplicateDocumentError(f"document with ID: {document_id} is already exist")
-    except Exception: 
+    except Exception:
         await session.rollback()
-        raise  
+        raise
 
 
 async def update_article(
@@ -112,10 +115,10 @@ async def update_article(
     try:
         payload = _to_dict(data)
         stmt = update(Article).where(Article.id == article_id).values(
-            title= payload.get("title", Article.title),
-            content= payload.get("content", Article.content),
-            source_file= payload.get("source_file", Article.source_file),
-            updated_at= datetime.now(timezone.utc),
+            title=payload.get("title", Article.title),
+            content=payload.get("content", Article.content),
+            source_file=payload.get("source_file", Article.source_file),
+            updated_at=datetime.now(timezone.utc),
         ).returning(Article)
         result = await session.execute(stmt)
         await session.commit()
@@ -129,7 +132,7 @@ async def delete_article(
     session: AsyncSession,
     article_id: str,
 ) -> bool:
-    try: 
+    try:
         stmt = delete(Article).where(Article.id == article_id).returning(Article.id)
         result = await session.execute(stmt)
         if result.scalar_one_or_none() is None:
@@ -139,7 +142,7 @@ async def delete_article(
         return True
     except Exception:
         await session.rollback()
-        raise 
+        raise
 
 
 async def upsert_article_by_document_id(
@@ -160,10 +163,10 @@ async def upsert_article_by_document_id(
             updated_at=now,
         )
         upsert_stmt = stmt.on_conflict_do_update(
-            index_elements=['document_id'],
+            index_elements=["document_id"],
             set_={
-                Article.title: stmt.excluded.title,             
-                Article.content: stmt.excluded.content,           
+                Article.title: stmt.excluded.title,
+                Article.content: stmt.excluded.content,
                 Article.source_file: stmt.excluded.source_file,
                 Article.updated_at: now,
             }
