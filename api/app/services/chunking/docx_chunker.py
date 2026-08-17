@@ -70,7 +70,7 @@ def chunk_markdown(
                 {
                     "content": content,
                     "metadata": {
-                        "source": source,
+                        "source_file": source,
                         "section": section_heading,
                         "chunk_id": str(chunk_id),
                     },
