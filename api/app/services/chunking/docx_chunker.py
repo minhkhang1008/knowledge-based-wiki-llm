@@ -66,9 +66,14 @@ def chunk_markdown(
     for section_heading, section_content in sections:
         for content in _iter_section_chunks(section_content, config):
             chunk_id += 1
+            content_with_heading = (
+                f"## {section_heading}\n\n{content}"
+                if section_heading
+                else content
+            )
             chunks.append(
                 {
-                    "content": content,
+                    "content": content_with_heading,
                     "metadata": {
                         "source_file": source,
                         "section": section_heading,

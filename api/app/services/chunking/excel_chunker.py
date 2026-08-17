@@ -7,7 +7,11 @@ from typing import Iterator
 
 from app.services.chunking.chunker_registry import register
 from app.services.chunking.config import ChunkConfig
-from app.services.chunking.recursive import is_table_line
+from app.services.chunking.recursive import (
+    approximate_token_count,
+    is_table_line,
+    recursive_split,
+)
 
 SHEET_HEADING_PATTERN = re.compile(r"^##\s+Sheet:\s*(.+)$", re.IGNORECASE)
 
@@ -47,6 +51,7 @@ def _iter_excel_sheet_chunks(
     sheet_name: str,
     table_lines: list[str],
     source: str,
+    config: ChunkConfig,
 ) -> Iterator[dict]:
     headers, data_rows = _parse_markdown_table(table_lines)
     if not headers:
@@ -56,23 +61,36 @@ def _iter_excel_sheet_chunks(
         if not any(value.strip() for value in row_values):
             continue
 
-        yield {
-            "content": _format_excel_row(headers, row_values),
-            "metadata": {
-                "source_file": source,
-                "sheet": sheet_name,
-                "row": str(index),
-            },
-        }
+        row_text = _format_excel_row(headers, row_values)
+        parts = (
+            [row_text]
+            if approximate_token_count(row_text) <= config.chunk_size
+            else recursive_split(row_text, config.chunk_size, config.overlap)
+        )
+
+        for part in parts:
+            yield {
+                "content": part,
+                "metadata": {
+                    "source_file": source,
+                    "sheet": sheet_name,
+                    "row": str(index),
+                },
+            }
 
 
-def chunk_excel(markdown_text: str, source: str) -> list[dict]:
+def chunk_excel(
+    markdown_text: str,
+    source: str,
+    config: ChunkConfig | None = None,
+) -> list[dict]:
     """
     Split Excel-derived Markdown into one chunk per table row.
 
     Expects the format produced by ``excel_to_markdown``:
     ``## Sheet: <name>`` followed by a Markdown table.
     """
+    config = config or ChunkConfig()
     chunks: list[dict] = []
     current_sheet = ""
     table_lines: list[str] = []
@@ -80,7 +98,14 @@ def chunk_excel(markdown_text: str, source: str) -> list[dict]:
     def flush_table() -> None:
         nonlocal table_lines
         if current_sheet and table_lines:
-            chunks.extend(_iter_excel_sheet_chunks(current_sheet, table_lines, source))
+            chunks.extend(
+                _iter_excel_sheet_chunks(
+                    current_sheet,
+                    table_lines,
+                    source,
+                    config,
+                )
+            )
         table_lines = []
 
     for raw_line in markdown_text.splitlines():
@@ -109,6 +134,6 @@ def chunk_excel(markdown_text: str, source: str) -> list[dict]:
 def chunk_excel_file(
     markdown_text: str,
     source: str,
-    _config: ChunkConfig | None = None,
+    config: ChunkConfig | None = None,
 ) -> list[dict]:
-    return chunk_excel(markdown_text, source)
+    return chunk_excel(markdown_text, source, config)
