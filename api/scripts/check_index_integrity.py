@@ -235,13 +235,14 @@ def cleanup(report: dict[str, Any]) -> None:
             "(article không còn tồn tại)."
         )
 
-    # 3) Chunk nghi ngờ chứa nội dung cũ -> xóa trực tiếp theo id vì chỉ
-    #    một phần chunk của article đó là cũ, không thể xóa cả article_id.
+    # 3) Chunk nghi ngờ chứa nội dung cũ chỉ là heuristic: chunkers có thể
+    #    thêm heading hoặc chuẩn hóa whitespace, nên không được tự động xóa.
     stale_ids = report["stale_content_chunk_ids"]
     if stale_ids:
-        collection.delete(ids=stale_ids)
-        deleted_total += len(stale_ids)
-        print(f"Đã xóa {len(stale_ids)} chunk nghi ngờ chứa nội dung cũ.")
+        print(
+            f"Có {len(stale_ids)} chunk nghi ngờ chứa nội dung cũ nhưng "
+            "KHÔNG tự động xóa vì đây chỉ là heuristic."
+        )
 
     if deleted_total == 0:
         print("Không có chunk nào cần xóa.")
