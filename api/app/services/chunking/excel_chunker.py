@@ -59,7 +59,7 @@ def _iter_excel_sheet_chunks(
         yield {
             "content": _format_excel_row(headers, row_values),
             "metadata": {
-                "source": source,
+                "source_file": source,
                 "sheet": sheet_name,
                 "row": str(index),
             },
