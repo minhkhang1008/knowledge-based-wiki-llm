@@ -4,12 +4,9 @@ from fastapi.responses import JSONResponse
 
 from app.api.v1 import articles, qa, search, wiki_articles, stats
 from app.core.exceptions import (
-    ArticleNotFound,
-    DuplicateDocumentError,
-    InvalidRequest,
     AIModelOfflineException,
-    UnexpectedError
 )
+from app.repositories.article_repository import DuplicateDocumentError
 from app.schemas.ErrorFormat import ErrorFormat
 from app.schemas.ErrorResponse import ErrorResponse
 
@@ -41,25 +38,6 @@ def root():
         "message": "Hệ thống Wiki LLM đang hoạt động!"
     }
 
-@app.exception_handler(ArticleNotFound)
-async def article_not_found(
-    request: Request,
-    exc: ArticleNotFound
-):
-    response = ErrorResponse(
-        success = False,
-        data = None,
-        message = "Article không tồn tại",
-        error = ErrorFormat(
-            code = "ARTICLE_NOT_FOUND",
-            detail = str(exc)
-        )
-    )
-    return JSONResponse(
-        status_code = status.HTTP_404_NOT_FOUND,
-        content = response.model_dump()
-    )
-
 @app.exception_handler(DuplicateDocumentError)
 async def duplicate_document_error(
     request: Request,
@@ -69,8 +47,8 @@ async def duplicate_document_error(
         success = False,
         data = None,
         message = "Trùng document_id",
-        code = ErrorFormat(
-            code = "DUPLICATE_DOCUMENT_ERROR",
+        error = ErrorFormat(
+            code = "DUPLICATE_DOCUMENT",
             detail = str(exc)
         )
     )
@@ -79,18 +57,18 @@ async def duplicate_document_error(
         content = response.model_dump()
     )
 
-@app.exception_handler(InvalidRequest)
-async def invalid_request(
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(
     request: Request,
-    exc: InvalidRequest
+    exc: RequestValidationError,
 ):
     response = ErrorResponse(
         success = False,
         data = None,
-        message = "Request sai",
+        message = "Request sai định dạng dữ liệu",
         error = ErrorFormat(
-            code = "INVALID_REQUEST",
-            detail = str(exc)
+            code = "VALIDATION_ERROR",
+            detail = str(exc.errors()),
         )
     )
     return JSONResponse(
@@ -118,17 +96,17 @@ async def ai_model_offline_exception(
         content=response.model_dump()
     )
 
-@app.exception_handler(UnexpectedError)
-async def unexpected_error(
+@app.exception_handler(Exception)
+async def unexpected_exception_handler(
     request: Request,
-    exc: UnexpectedError
+    exc: Exception,
 ):
     response = ErrorResponse(
         success = False,
         data = None,
         message = "Lỗi không dự kiến",
         error = ErrorFormat(
-            code = "UNEXPECTED_ERROR",
+            code = "INTERNAL_SERVER_ERROR",
             detail = str(exc)
         )
     )

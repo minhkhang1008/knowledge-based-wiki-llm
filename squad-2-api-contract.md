@@ -13,15 +13,10 @@
 * **Phương thức (Method):** `GET`
 * **Chức năng:** Lấy danh sách các bài viết wiki trong hệ thống. Hỗ trợ tìm kiếm theo từ khóa.
 
-### Dữ liệu gửi lên
-```json
-{
-  "skip" : 0,
-  "limit" : 20,
-  "search" : "Hướng dẫn docker"
-}
-```
-#### Các biến skip, limit, search là Optional, có thể điền hoặc không
+### Query parameters
+`GET /api/articles?skip=0&limit=20&search=Hướng%20dẫn%20docker`
+
+`skip`, `limit`, và `search` đều là optional.
 
 ### Dữ liệu trả về khi thành công (Response - 200 OK)
 ```json
@@ -102,7 +97,7 @@ Ghi chú: Tất cả các biến đều yêu cầu từ 1 kí tự trở lên. `
     "document_id" : "docker_67",
     "title" : "Hướng dẫn docker cơ bản với 67 bước",
     "content" : "# Hướng dẫn docker cơ bản với 67 bước",
-    "source_file" : "docker_6767"
+    "source_file" : "docker_6767",
     "created_at" : "2026-08-07 20:36:36",
     "updated_at" : "2026-08-07 20:36:36"
   },
@@ -141,7 +136,7 @@ Ghi chú cho Pydantic Schema: Các trường hợp gửi lên trong body sẽ đ
     "document_id" : "docker_36",
     "title" : "Tổng quan về RAG (Cập nhật)",
     "content" : "# RAG và Ollama\nNội dung đã được chỉnh sửa...",
-    "source_file" : "docker_67"
+    "source_file" : "docker_67",
     "created_at" : "2026-08-07 20:36:36",
     "updated_at" : "2026-08-07 20:36:36"
   },
@@ -194,7 +189,7 @@ Ghi chú cho Pydantic Schema: Các trường hợp gửi lên trong body sẽ đ
     "document_id" : "docker_36",
     "title" : "Hướng dẫn sử dụng docker với 36 bước",
     "content" : "Hướng dẫn sử dụng docker với 36 bước",
-    "source_file" : "docker36"
+    "source_file" : "docker36",
     "created_at" : "2026-08-07 20:36:36",
     "updated_at" : "2026-08-07 20:36:36"
   },
@@ -207,10 +202,10 @@ Ghi chú cho Pydantic Schema: Các trường hợp gửi lên trong body sẽ đ
 
 ## 2. Nhóm API Tìm kiếm & Hỏi đáp AI (Core Engine)
 
-### 2.1. API Tìm Kiếm Kết Hợp (Hybrid Search)
+### 2.1. API Tìm Kiếm Ngữ Nghĩa (Semantic Search)
 * **Địa chỉ (URL):** `/api/search`
 * **Phương thức (Method):** `POST`
-* **Chức năng:** Thực hiện tìm kiếm kết hợp cả từ khóa (Keyword) và ngữ nghĩa (Semantic) trong kho dữ liệu wiki.
+* **Chức năng:** Thực hiện tìm kiếm ngữ nghĩa trong kho dữ liệu wiki.
 
 ### Dữ liệu gửi lên (Request Body)
 Định dạng: `application/json`
@@ -227,15 +222,17 @@ Ghi chú cho Pydantic Schema: `query` là bắt buộc, không được để tr
 ```json
 {
   "success": true,
-  "data": [
-    {
+  "data": {
+    "results": [
+      {
       "text" : "cách deploy docker lên server",
       "article_id" : "docker_36",
       "source_file" : "docker36",
       "page_number" : 36,
-      "distant" : 0.36
-    }
-  ],
+        "distance" : 0.36
+      }
+    ]
+  },
   "message": "Tìm kiếm thành công",
   "error" : null
 }
@@ -320,9 +317,9 @@ Ghi chú cho Pydantic Schema: `query` là bắt buộc, không được để tr
 {
   "success": false,
   "data": null,
-  "message": "Request sai",
+  "message": "Request sai định dạng dữ liệu",
   "error" : {
-    "code" : "INVALID_REQUEST",
+    "code" : "VALIDATION_ERROR",
     "detail" : "..."
   }
 }
@@ -350,7 +347,7 @@ Ghi chú cho Pydantic Schema: `query` là bắt buộc, không được để tr
   "data": null,
   "message": "Trùng document_id",
   "error" : {
-    "code" : "DUPLICATE_DOCUMENT_ERROR",
+    "code" : "DUPLICATE_DOCUMENT",
     "detail" : "..."
   }
 }
@@ -364,7 +361,7 @@ Ghi chú cho Pydantic Schema: `query` là bắt buộc, không được để tr
   "data": null,
   "message": "Hệ thống AI hiện đang ngoại tuyến",
   "error" : {
-    "code" : "503 Service Unavailable",
+    "code" : "AI_ENGINE_OFFLINE",
     "detail" : "Ollama ngoại tuyến hoặc chưa kết nối"
   }
 }
@@ -378,7 +375,7 @@ Ghi chú cho Pydantic Schema: `query` là bắt buộc, không được để tr
   "data": null,
   "message": "Lỗi không dự kiến",
   "error" : {
-    "code" : "UNEXPECTED_ERROR",
+    "code" : "INTERNAL_SERVER_ERROR",
     "detail" : "..."
   }
 }

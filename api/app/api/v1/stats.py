@@ -9,8 +9,8 @@ router = APIRouter()
 
 @router.get("/api/stats")
 async def get_stats(db: AsyncSession = Depends(get_db)):
-    total_articles = count_articles(db)
-    total_qa_logs = count_qa_logs(db)
+    total_articles = await count_articles(db)
+    total_qa_logs = await count_qa_logs(db)
     total_indexed_chunks = count_indexed_chunks()
 
     data = StatsData(
