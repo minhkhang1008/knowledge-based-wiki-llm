@@ -11,16 +11,23 @@ from app.services.chunking.recursive import is_table_line
 
 SHEET_HEADING_PATTERN = re.compile(r"^##\s+Sheet:\s*(.+)$", re.IGNORECASE)
 
+def _split_markdown_row(line: str) -> list[str]:
+    content = line.strip().strip("|")
+
+    return [
+        cell.strip().replace(r"\|", "|")
+        for cell in re.split(r"(?<!\\)\|", content)
+    ]
 
 def _parse_markdown_table(table_lines: list[str]) -> tuple[list[str], list[list[str]]]:
     if len(table_lines) < 2:
         return [], []
 
-    headers = [cell.strip() for cell in table_lines[0].strip("|").split("|")]
+    headers = _split_markdown_row(table_lines[0])
     data_rows: list[list[str]] = []
 
     for line in table_lines[2:]:
-        cells = [cell.strip().replace(r"\|", "|") for cell in line.strip("|").split("|")]
+        cells = _split_markdown_row(line)
         if len(cells) < len(headers):
             cells.extend([""] * (len(headers) - len(cells)))
         data_rows.append(cells[: len(headers)])
