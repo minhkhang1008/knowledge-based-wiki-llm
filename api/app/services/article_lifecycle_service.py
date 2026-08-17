@@ -1,13 +1,47 @@
+import asyncio
 from typing import Any
+
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.repositories.article_repository import create_article, delete_article, update_article, upsert_article_by_document_id
+
+from app.core.ollama_client import generate_embedding
+from app.repositories.article_repository import (
+    create_article,
+    delete_article,
+    get_article_by_id,
+    update_article,
+    upsert_article_by_document_id,
+)
+from app.services.services_vector_db import collection
 from app.services.vector_index_maintenance import delete_chunks_by_article_id
+
+
+async def index_article_to_chroma(article: Any) -> None:
+    """Replace an article's searchable vector entry after it changes."""
+    content = article.content.strip()
+    embedding = await generate_embedding(content)
+    if not embedding:
+        raise ValueError("Không thể tạo embedding cho article rỗng.")
+
+    await asyncio.to_thread(
+        collection.upsert,
+        ids=[str(article.id)],
+        embeddings=[embedding],
+        documents=[content],
+        metadatas=[
+            {
+                "article_id": str(article.id),
+                "source_file": article.source_file,
+            }
+        ],
+    )
 
 async def create_article_lifecycle(
     session: AsyncSession,
     data: Any,
 ):
-    return await create_article(session, data)
+    article = await create_article(session, data)
+    await index_article_to_chroma(article)
+    return article
 
 
 async def update_article_lifecycle(
@@ -19,7 +53,8 @@ async def update_article_lifecycle(
     if article is None:
         return None
 
-    delete_chunks_by_article_id(article_id)
+    await asyncio.to_thread(delete_chunks_by_article_id, article_id)
+    await index_article_to_chroma(article)
     return article
 
 
@@ -27,11 +62,12 @@ async def delete_article_lifecycle(
     session: AsyncSession,
     article_id: str,
 ) -> bool:
-    deleted = await delete_article(session, article_id)
-    if not deleted:
+    article = await get_article_by_id(session, article_id)
+    if article is None:
         return False
-    delete_chunks_by_article_id(article_id)
-    return True
+
+    await asyncio.to_thread(delete_chunks_by_article_id, article_id)
+    return await delete_article(session, article_id)
 
 
 async def upsert_article_lifecycle(
@@ -39,6 +75,6 @@ async def upsert_article_lifecycle(
     data: Any,
 ):
     article = await upsert_article_by_document_id(session, data)
-    delete_chunks_by_article_id(str(article.id))
+    await asyncio.to_thread(delete_chunks_by_article_id, str(article.id))
+    await index_article_to_chroma(article)
     return article
-

@@ -61,12 +61,13 @@ async def list_articles(
     limit: int = 20,
     search: str | None = None,
 ) -> list[Article]:
-    safe_skip = max(skip,1)
-    safe_limit = min(max(limit,1),100)
+    safe_skip = max(skip, 0)
+    safe_limit = min(max(limit, 1), 100)
+    search_term = (search or "").strip()
     try: 
         stmt = select(Article).offset(safe_skip).limit(safe_limit)
-        if search and search.strip():
-            stmt = stmt.where(Article.title.like(f"%{search}%"))
+        if search_term:
+            stmt = stmt.where(Article.title.like(f"%{search_term}%"))
         result = await session.execute(stmt)
         return list(result.scalars().all())
     except Exception: 
@@ -131,6 +132,7 @@ async def delete_article(
         stmt = delete(Article).where(Article.id == article_id).returning(Article.id)
         result = await session.execute(stmt)
         if result.scalar_one_or_none() is None:
+            await session.rollback()
             return False
         await session.commit()
         return True

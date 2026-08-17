@@ -5,14 +5,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.repositories.article_repository import (
     DuplicateDocumentError,
+    create_article,
+    delete_article,
     get_article_by_id,
     list_articles,
-)
-from app.services.article_lifecycle_service import (
-    create_article_lifecycle,
-    delete_article_lifecycle,
-    update_article_lifecycle,
-    upsert_article_lifecycle,
+    update_article,
+    upsert_article_by_document_id,
 )
 from app.schemas.article import (
     ArticleCreate,
@@ -55,7 +53,7 @@ async def create_article_endpoint(
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        article = await create_article_lifecycle(db, data)
+        article = await create_article(db, data)
 
         return JSONResponse(
             status_code=status.HTTP_201_CREATED,
@@ -133,7 +131,7 @@ async def update_article_endpoint(
     data: ArticleUpdate,
     db: AsyncSession = Depends(get_db),
 ):
-    article = await update_article_lifecycle(db, article_id, data)
+    article = await update_article(db, article_id, data)
 
     if article is None:
         return article_not_found_response(article_id)
@@ -151,7 +149,7 @@ async def delete_article_endpoint(
     article_id: str,
     db: AsyncSession = Depends(get_db),
 ):
-    deleted = await delete_article_lifecycle(db, article_id)
+    deleted = await delete_article(db, article_id)
 
     if not deleted:
         return article_not_found_response(article_id)
@@ -173,7 +171,7 @@ async def upsert_article_endpoint(
     payload = data.model_dump()
     payload["document_id"] = document_id
 
-    article = await upsert_article_lifecycle(
+    article = await upsert_article_by_document_id(
         db,
         payload,
     )
