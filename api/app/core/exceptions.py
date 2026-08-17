@@ -1,5 +1,3 @@
-class AIModelOfflineException(Exception): 
-    pass
 class RequestTimeoutError(Exception):
       # Bắt lỗi Timeout
       pass
@@ -30,4 +28,8 @@ class RAG_InvalidDimensionException(Exception):
 
 class RAG_OperationalError(Exception):
       # Lỗi SQLite
+      pass
+
+class AIModelOfflineException(Exception):
+      # Lỗi Ollama ngoại tuyến
       pass
