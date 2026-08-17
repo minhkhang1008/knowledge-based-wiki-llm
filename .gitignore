@@ -48,3 +48,4 @@ api/uploads/
 api/images/
 api/storage/
 api/app/core/testing.py
+api/tests/test_article_lifecycle_service.py
