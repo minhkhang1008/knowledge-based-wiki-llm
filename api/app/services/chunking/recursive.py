@@ -12,7 +12,7 @@ PLACEHOLDER_PREFIX = "\x00BLOCK"
 PLACEHOLDER_SUFFIX = "\x00"
 
 FENCED_CODE_PATTERN = re.compile(r"```[^\n]*\n.*?```", re.DOTALL)
-SENTENCE_PATTERN = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9\"'])")
+SENTENCE_PATTERN = re.compile(r"(?<=[.!?])\s+(?=\S)")
 LIST_ITEM_PATTERN = re.compile(r"^\s*(?:[-*+]|\d+\.)\s+")
 TABLE_SEPARATOR_PATTERN = re.compile(r"^\|\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$")
 
