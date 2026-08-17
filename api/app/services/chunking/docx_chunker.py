@@ -9,7 +9,7 @@ from app.services.chunking.chunker_registry import register
 from app.services.chunking.config import ChunkConfig
 from app.services.chunking.recursive import approximate_token_count, recursive_split
 
-HEADING_PATTERN = re.compile(r"^(#{1,3})\s+(.+)$")
+HEADING_PATTERN = re.compile(r"^(#{1,6})\s+(.+)$")
 
 
 def _split_by_headings(text: str) -> list[tuple[str, str]]:
