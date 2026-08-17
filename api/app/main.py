@@ -2,8 +2,11 @@ from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from app.api.v1 import articles, qa, search, wiki_articles
-from app.core.exceptions import AIModelOfflineException
+from app.api.v1 import articles, qa, search, wiki_articles, stats
+from app.core.exceptions import (
+    AIModelOfflineException,
+)
+from app.repositories.article_repository import DuplicateDocumentError
 from app.schemas.ErrorFormat import ErrorFormat
 from app.schemas.ErrorResponse import ErrorResponse
 
@@ -26,6 +29,7 @@ app.include_router(
     prefix="/api/articles",
     tags=["Wiki Articles"],
 )
+app.include_router(stats.router, tags=["Stats"])
 
 
 @app.get("/")
@@ -34,6 +38,43 @@ def root():
         "message": "Hệ thống Wiki LLM đang hoạt động!"
     }
 
+@app.exception_handler(DuplicateDocumentError)
+async def duplicate_document_error(
+    request: Request,
+    exc: DuplicateDocumentError
+):
+    response = ErrorResponse(
+        success = False,
+        data = None,
+        message = "Trùng document_id",
+        error = ErrorFormat(
+            code = "DUPLICATE_DOCUMENT",
+            detail = str(exc)
+        )
+    )
+    return JSONResponse(
+        status_code = status.HTTP_409_CONFLICT,
+        content = response.model_dump()
+    )
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(
+    request: Request,
+    exc: RequestValidationError,
+):
+    response = ErrorResponse(
+        success = False,
+        data = None,
+        message = "Request sai định dạng dữ liệu",
+        error = ErrorFormat(
+            code = "VALIDATION_ERROR",
+            detail = str(exc.errors()),
+        )
+    )
+    return JSONResponse(
+        status_code = status.HTTP_422_UNPROCESSABLE_CONTENT,
+        content = response.model_dump()
+    )
 
 @app.exception_handler(AIModelOfflineException)
 async def ai_model_offline_exception(
@@ -47,31 +88,29 @@ async def ai_model_offline_exception(
         error=ErrorFormat(
             code="AI_ENGINE_OFFLINE",
             detail=str(exc),
-        ),
+        )
     )
 
     return JSONResponse(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-        content=response.model_dump(),
+        content=response.model_dump()
     )
 
-
-@app.exception_handler(RequestValidationError)
-async def validation_exception_handler(
+@app.exception_handler(Exception)
+async def unexpected_exception_handler(
     request: Request,
-    exc: RequestValidationError,
+    exc: Exception,
 ):
     response = ErrorResponse(
-        success=False,
-        data=None,
-        message="Request sai định dạng dữ liệu",
-        error=ErrorFormat(
-            code="VALIDATION_ERROR",
-            detail=str(exc.errors()),
-        ),
+        success = False,
+        data = None,
+        message = "Lỗi không dự kiến",
+        error = ErrorFormat(
+            code = "INTERNAL_SERVER_ERROR",
+            detail = str(exc)
+        )
     )
-
     return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-        content=response.model_dump(),
+        status_code = status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content = response.model_dump()
     )
