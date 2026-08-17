@@ -7,6 +7,7 @@ from app.services.chunking import (
     approximate_token_count,
     chunk_excel,
     chunk_markdown,
+    chunk_pptx,
     recursive_split,
 )
 
@@ -15,5 +16,6 @@ __all__ = [
     "approximate_token_count",
     "chunk_excel",
     "chunk_markdown",
+    "chunk_pptx",
     "recursive_split",
 ]
