@@ -15,7 +15,9 @@ collection = client.get_or_create_collection("chunks")
 # Export để caller (router/API layer) dùng làm default top_k khi build request, tránh hardcode số 5 rải rác nhiều nơi
 # Không dùng làm default trong chữ ký hàm vì top_k=5 là public interface cố định
 RAG_TOP_K = int(os.getenv("RAG_TOP_K", 5))
-RAG_DISTANCE_THRESHOLD = float(os.getenv("RAG_DISTANCE_THRESHOLD", 0.7))
+# Embedding được L2-normalize trước khi index/query, vì vậy khoảng cách không
+# phụ thuộc vào độ lớn vector thô của nomic-embed-text.
+RAG_DISTANCE_THRESHOLD = float(os.getenv("RAG_DISTANCE_THRESHOLD", 0.68))
 
 # Các field filter được hỗ trợ, dùng để validate + tránh lọt field lạ vào where
 SUPPORTED_FILTER_FIELDS = {"article_id", "source_file"}

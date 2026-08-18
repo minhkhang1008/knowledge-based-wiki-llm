@@ -21,6 +21,12 @@ def build_rag_prompt(question: str, context_chunks: list[dict], chat_history: li
     4. Nếu các tài liệu KHÔNG chứa thông tin để trả lời câu hỏi hoặc thông tin mơ hồ không đủ căn cứ, bạn PHẢI trả lời chính xác cụm từ sau: 'Tôi không tìm thấy thông tin này trong tài liệu.'. Không được cố gắng giải thích thêm hoặc bịa ra câu trả lời.
     5. Câu trả lời cần ngắn gọn, đi thẳng vào vấn đề, trung thực và khách quan.
 
+    ĐỊNH DẠNG OUTPUT BẮT BUỘC:
+    - Nếu trả lời được, câu trả lời PHẢI có ít nhất một nhãn nguồn [S#].
+    - Ví dụ đúng: 'Dự án yêu cầu Python 3.11+ [S1].'
+    - Câu trả lời có thông tin nhưng không có [S#] là không hợp lệ.
+    - Nếu không thể gắn nguồn, chỉ trả lời đúng câu từ chối ở nguyên tắc 4.
+
     CÁC TÀI LIỆU:
     {completed_chunk}"""
 

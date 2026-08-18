@@ -614,11 +614,12 @@ def print_summary(
         if integration_mode
         else "DEFAULT (fake collection / synthetic)"
     )
-    threshold_name = (
-        "RAG_DISTANCE_THRESHOLD thật (xem .env)"
-        if integration_mode
-        else str(MOCK_DISTANCE_THRESHOLD)
-    )
+    if integration_mode:
+        from app.services.services_vector_db import RAG_DISTANCE_THRESHOLD
+
+        threshold_name = str(RAG_DISTANCE_THRESHOLD)
+    else:
+        threshold_name = str(MOCK_DISTANCE_THRESHOLD)
 
     print("\n=== SUMMARY ===")
     print(f"Chế độ: {mode_name}")
@@ -688,34 +689,49 @@ def main() -> int:
         os.getenv("RUN_RAG_INTEGRATION") == "1"
     )
 
-    if integration_mode:
-        print(
-            "=== INTEGRATION: dùng Ollama + ChromaDB thật ==="
-        )
-        problem = asyncio.run(integration_precheck())
-
-        if problem:
-            print(f"Bỏ qua integration test: {problem}")
-            return 0
-    else:
-        print(
-            "=== DEFAULT: dùng fake collection / "
-            "dữ liệu synthetic ==="
-        )
-
     try:
         dataset = load_dataset(args.dataset)
     except (FileNotFoundError, ValueError) as exc:
         print(f"Lỗi dataset: {exc}", file=sys.stderr)
         return 1
 
-    results = asyncio.run(
-        run_evaluation(
-            dataset,
-            top_k=args.top_k,
-            integration_mode=integration_mode,
+    if integration_mode:
+        print(
+            "=== INTEGRATION: dùng Ollama + ChromaDB thật ==="
         )
-    )
+
+        async def run_checked_integration() -> tuple[
+            str | None,
+            list[dict[str, Any]] | None,
+        ]:
+            problem = await integration_precheck()
+            if problem:
+                return problem, None
+
+            results = await run_evaluation(
+                dataset,
+                top_k=args.top_k,
+                integration_mode=True,
+            )
+            return None, results
+
+        problem, results = asyncio.run(run_checked_integration())
+        if problem:
+            print(f"Bỏ qua integration test: {problem}")
+            return 0
+        assert results is not None
+    else:
+        print(
+            "=== DEFAULT: dùng fake collection / "
+            "dữ liệu synthetic ==="
+        )
+        results = asyncio.run(
+            run_evaluation(
+                dataset,
+                top_k=args.top_k,
+                integration_mode=False,
+            )
+        )
 
     print_table(results)
     all_passed = print_summary(

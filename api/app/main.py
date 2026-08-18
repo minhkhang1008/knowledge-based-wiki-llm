@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -6,15 +8,24 @@ from app.api.v1 import articles, qa, search, wiki_articles, stats
 from app.core.exceptions import (
     AIModelOfflineException,
 )
+from app.core.database import close_db, init_db
 from app.repositories.article_repository import DuplicateDocumentError
 from app.schemas.ErrorFormat import ErrorFormat
 from app.schemas.ErrorResponse import ErrorResponse
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    await init_db()
+    yield
+    await close_db()
 
 
 app = FastAPI(
     title="Knowledge Based Wiki LLM API",
     description="API for parsing presentations and RAG",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 app.include_router(

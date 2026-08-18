@@ -1,0 +1,68 @@
+{
+  "_meta": {
+    "description": "Các đoạn trích từ API contract thật đã được công khai trong repository.",
+    "data_type": "real",
+    "retrieved_at": "2026-08-18",
+    "source_repository": "minhkhang1008/knowledge-based-wiki-llm",
+    "source_path": "squad-2-api-contract.md",
+    "note": "Corpus dùng nội dung đang tồn tại trên develop, không phải dữ liệu tự tạo và không công khai thêm dữ liệu ngoài repository."
+  },
+  "chunks": [
+    {
+      "id": "real-baseline:contract-response:0",
+      "article_id": "repo-contract-response-format",
+      "source_file": "squad-2-api-contract.md",
+      "source_url": "https://github.com/minhkhang1008/knowledge-based-wiki-llm/blob/develop/squad-2-api-contract.md",
+      "text": "API Contract Squad 2 quy định response thành công có success=true, data chứa dữ liệu, message mô tả và error=null. Response thất bại có success=false, data=null, message mô tả và error gồm code cùng detail."
+    },
+    {
+      "id": "real-baseline:contract-list-articles:0",
+      "article_id": "repo-contract-list-articles",
+      "source_file": "squad-2-api-contract.md",
+      "source_url": "https://github.com/minhkhang1008/knowledge-based-wiki-llm/blob/develop/squad-2-api-contract.md",
+      "text": "API lấy danh sách bài viết dùng GET /api/articles. Chức năng là lấy danh sách bài viết wiki và hỗ trợ tìm kiếm theo từ khóa. Các query parameter skip, limit và search đều là optional; ví dụ GET /api/articles?skip=0&limit=20&search=Hướng%20dẫn%20docker."
+    },
+    {
+      "id": "real-baseline:contract-create-article:0",
+      "article_id": "repo-contract-create-article",
+      "source_file": "squad-2-api-contract.md",
+      "source_url": "https://github.com/minhkhang1008/knowledge-based-wiki-llm/blob/develop/squad-2-api-contract.md",
+      "text": "API tạo bài viết mới dùng POST /api/articles với application/json. Request body gồm document_id, title, content và source_file. Tất cả trường yêu cầu ít nhất một ký tự; content lưu Markdown dưới dạng chuỗi. Thành công trả HTTP 201 Created."
+    },
+    {
+      "id": "real-baseline:contract-update-article:0",
+      "article_id": "repo-contract-update-article",
+      "source_file": "squad-2-api-contract.md",
+      "source_url": "https://github.com/minhkhang1008/knowledge-based-wiki-llm/blob/develop/squad-2-api-contract.md",
+      "text": "API cập nhật bài viết dùng PUT /api/articles/{article_id}. Request body gồm title, content và source_file; các trường trong body đè lên dữ liệu cũ của article_id trên URL. Thành công trả HTTP 200 và nội dung bài viết đã cập nhật."
+    },
+    {
+      "id": "real-baseline:contract-search:0",
+      "article_id": "repo-contract-semantic-search",
+      "source_file": "squad-2-api-contract.md",
+      "source_url": "https://github.com/minhkhang1008/knowledge-based-wiki-llm/blob/develop/squad-2-api-contract.md",
+      "text": "API tìm kiếm ngữ nghĩa dùng POST /api/search. Request body application/json có field query bắt buộc, không được để trống và phải dài tối thiểu 2 ký tự để vector hóa. Response data.results gồm text, article_id, source_file, page_number và distance."
+    },
+    {
+      "id": "real-baseline:contract-rag:0",
+      "article_id": "repo-contract-rag-qa",
+      "source_file": "squad-2-api-contract.md",
+      "source_url": "https://github.com/minhkhang1008/knowledge-based-wiki-llm/blob/develop/squad-2-api-contract.md",
+      "text": "API hỏi đáp tài liệu dùng POST /api/qa/ask. Endpoint nhận câu hỏi tiếng Việt và chat_history, thực hiện truy vấn ngữ nghĩa rồi dùng LLM tổng hợp câu trả lời từ tài liệu. Response trả answer, sources và no_answer_reason."
+    },
+    {
+      "id": "real-baseline:contract-stats:0",
+      "article_id": "repo-contract-stats",
+      "source_file": "squad-2-api-contract.md",
+      "source_url": "https://github.com/minhkhang1008/knowledge-based-wiki-llm/blob/develop/squad-2-api-contract.md",
+      "text": "API thống kê dùng GET /api/stats và không có request body. Endpoint trả số liệu tổng hợp để Squad 3 vẽ Dashboard, gồm total_articles, total_qa_logs và total_indexed_chunks."
+    },
+    {
+      "id": "real-baseline:contract-errors:0",
+      "article_id": "repo-contract-error-codes",
+      "source_file": "squad-2-api-contract.md",
+      "source_url": "https://github.com/minhkhang1008/knowledge-based-wiki-llm/blob/develop/squad-2-api-contract.md",
+      "text": "Error contract quy định 422 dùng VALIDATION_ERROR, 404 dùng ARTICLE_NOT_FOUND, 409 dùng DUPLICATE_DOCUMENT, 503 dùng AI_ENGINE_OFFLINE và 500 dùng INTERNAL_SERVER_ERROR. Error response có success=false, data=null, message và error gồm code cùng detail."
+    }
+  ]
+}
