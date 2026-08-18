@@ -20,7 +20,7 @@ RAG_TOP_K = int(os.getenv("RAG_TOP_K", 5))
 RAG_DISTANCE_THRESHOLD = float(os.getenv("RAG_DISTANCE_THRESHOLD", 0.68))
 
 # Các field filter được hỗ trợ, dùng để validate + tránh lọt field lạ vào where
-SUPPORTED_FILTER_FIELDS = {"article_id", "source_file"}
+SUPPORTED_FILTER_FIELDS = {"article_id", "source_file", "document_id", "file_type"}
 
 
 def _validate_top_k(top_k: int) -> None:
@@ -33,7 +33,8 @@ def _build_where_clause(filters: dict[str, str] | None) -> dict | None:
     Chuyển filters (dict đơn giản) thành cú pháp `where` hợp lệ của ChromaDB.
 
     - filters None hoặc rỗng -> trả về None (không gửi where vào query).
-    - Chỉ hỗ trợ các field trong SUPPORTED_FILTER_FIELDS (article_id, source_file);
+    - Chỉ hỗ trợ các field trong SUPPORTED_FILTER_FIELDS
+      (article_id, source_file, document_id, file_type);
       field nào ngoài danh sách này -> raise ValueError, không âm thầm bỏ qua,
       để tránh caller tưởng đã lọc theo field đó nhưng thực chất không có filter.
     - Trong các field hợp lệ, value rỗng/None -> bỏ qua field đó (coi như không lọc).
