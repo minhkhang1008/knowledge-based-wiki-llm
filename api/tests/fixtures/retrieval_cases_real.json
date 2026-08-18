@@ -1,0 +1,74 @@
+{
+  "_meta": {
+    "description": "Baseline retrieval dùng dữ liệu thật đã công khai trong API contract của repository.",
+    "data_type": "real",
+    "corpus": "tests/fixtures/retrieval_corpus_real.json",
+    "coverage": {
+      "article_id_cases": 6,
+      "source_file_cases": 2,
+      "no_context_cases": 2
+    }
+  },
+  "cases": [
+    {
+      "question": "Response thành công và thất bại của Squad 2 có cấu trúc như thế nào?",
+      "expected_source": "repo-contract-response-format",
+      "expected_source_field": "article_id",
+      "expect_no_context": false
+    },
+    {
+      "question": "API lấy danh sách bài viết dùng method, URL và query parameter nào?",
+      "expected_source": "repo-contract-list-articles",
+      "expected_source_field": "article_id",
+      "expect_no_context": false
+    },
+    {
+      "question": "API tạo bài viết mới dùng endpoint nào, request body gồm các field gì và trả HTTP nào?",
+      "expected_source": "repo-contract-create-article",
+      "expected_source_field": "article_id",
+      "expect_no_context": false
+    },
+    {
+      "question": "Endpoint cập nhật bài viết dùng phương thức gì và body gồm các trường nào?",
+      "expected_source": "repo-contract-update-article",
+      "expected_source_field": "article_id",
+      "expect_no_context": false
+    },
+    {
+      "question": "API semantic search yêu cầu query tối thiểu bao nhiêu ký tự và trả các field nào?",
+      "expected_source": "repo-contract-semantic-search",
+      "expected_source_field": "article_id",
+      "expect_no_context": false
+    },
+    {
+      "question": "API hỏi đáp RAG nhận dữ liệu gì và trả về những thành phần nào?",
+      "expected_source": "repo-contract-rag-qa",
+      "expected_source_field": "article_id",
+      "expect_no_context": false
+    },
+    {
+      "question": "Endpoint thống kê dành cho Dashboard trả ba chỉ số nào?",
+      "expected_source": "squad-2-api-contract.md",
+      "expected_source_field": "source_file",
+      "expect_no_context": false
+    },
+    {
+      "question": "Các status 404, 409, 422, 503 và 500 dùng error code nào?",
+      "expected_source": "squad-2-api-contract.md",
+      "expected_source_field": "source_file",
+      "expect_no_context": false
+    },
+    {
+      "question": "Tàu Apollo 11 đáp xuống Mặt Trăng vào ngày nào?",
+      "expected_source": null,
+      "expected_source_field": null,
+      "expect_no_context": true
+    },
+    {
+      "question": "Công thức và nhiệt độ nướng bánh tiramisu là bao nhiêu?",
+      "expected_source": null,
+      "expected_source_field": null,
+      "expect_no_context": true
+    }
+  ]
+}
