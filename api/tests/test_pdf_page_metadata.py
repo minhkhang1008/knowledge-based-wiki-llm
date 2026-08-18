@@ -8,6 +8,7 @@ from app.services.document_parser.pdf_converter import (
     DocumentLayoutSorter,
     MarkdownCompiler,
     PDFTextCleaner,
+    LocalPDFParser,
 )
 
 
@@ -56,6 +57,35 @@ class PdfPageMetadataRegressionTests(unittest.TestCase):
         text = "Công suất gồm 100 kW, 10 MW, 50 W; tụ điện 2 mF."
 
         self.assertEqual(PDFTextCleaner.clean(text), text)
+
+    def test_cleaner_repairs_verified_private_use_punctuation(self) -> None:
+        text = "Thonny \ue081IDE\ue082 - BƯỚC 1\ue092\u200bCài đặt"
+
+        self.assertEqual(
+            PDFTextCleaner.clean(text),
+            "Thonny (IDE) - BƯỚC 1: Cài đặt",
+        )
+
+    def test_lowercase_bold_continuation_is_not_a_heading(self) -> None:
+        self.assertFalse(
+            LocalPDFParser._starts_like_heading(
+                "làm việc của Thonny được chia thành hai vùng chính:"
+            )
+        )
+        self.assertTrue(LocalPDFParser._starts_like_heading("BƯỚC 1: Cài đặt"))
+        parser = LocalPDFParser.__new__(LocalPDFParser)
+        self.assertEqual(
+            parser._determine_block_type_by_font(
+                "làm việc của Thonny được chia thành hai vùng chính:",
+                16.0,
+                "Inter-Bold",
+                16.0,
+                18.0,
+                "Inter-Regular",
+                {"Inter-Bold"},
+            ),
+            BlockType.PARAGRAPH,
+        )
 
     def test_pdf_chunks_do_not_cross_pages_and_keep_page_number(self) -> None:
         markdown = """<!-- page: 1 -->

@@ -60,6 +60,29 @@ Chỉ áp dụng trong tháng tám.
     assert all("Điều khoản" not in chunk["content"] for chunk in table_chunks)
 
 
+def test_single_oversized_pdf_table_row_stays_within_chunk_limit() -> None:
+    long_cell = " ".join(f"nội_dung_{index}" for index in range(300))
+    markdown = f"""<!-- page: 1 -->
+| Mô tả |
+|---|
+| {long_cell} |
+"""
+
+    chunks = chunk_from_markdown(
+        markdown,
+        "long-row.pdf",
+        ".pdf",
+        ChunkConfig(chunk_size=40, overlap=5),
+    )
+
+    assert len(chunks) > 1
+    assert all("| Mô tả |" in chunk["content"] for chunk in chunks)
+    assert all(
+        approximate_token_count(chunk["content"]) <= 40
+        for chunk in chunks
+    )
+
+
 def test_pdf_heading_path_is_repeated_on_long_chunks() -> None:
     body = " ".join(f"nội_dung_{index}." for index in range(100))
     markdown = f"<!-- page: 3 -->\n# Chương 1\n## Cài đặt\n\n{body}"
@@ -103,6 +126,7 @@ def test_pdf_image_ocr_metadata_survives_markdown_and_chunking() -> None:
             page_number=2,
             ocr_confidence=0.91,
             ocr_engine="easyocr",
+            ocr_regions=3,
         )
     ])
     chunks = chunk_from_markdown(markdown, "workflow.pdf", ".pdf")
@@ -110,6 +134,7 @@ def test_pdf_image_ocr_metadata_survives_markdown_and_chunking() -> None:
     assert len(chunks) == 1
     assert chunks[0]["metadata"]["page_number"] == 2
     assert chunks[0]["metadata"]["ocr_confidence"] == 0.91
+    assert chunks[0]["metadata"]["ocr_regions"] == 3
     assert chunks[0]["metadata"]["block_type"] == "image_ocr"
 
 

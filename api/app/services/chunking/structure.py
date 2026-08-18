@@ -170,7 +170,7 @@ def parse_markdown_units(markdown_text: str) -> list[SemanticUnit]:
 
 def _split_table(content: str, max_tokens: int) -> list[str]:
     lines = [line for line in content.splitlines() if line.strip()]
-    if approximate_token_count(content) <= max_tokens or len(lines) <= 3:
+    if approximate_token_count(content) <= max_tokens:
         return [content]
 
     separator_cells = [cell.strip() for cell in lines[1].strip().strip("|").split("|")]
@@ -180,15 +180,37 @@ def _split_table(content: str, max_tokens: int) -> list[str]:
     header_count = 2 if has_separator else 1
     header = lines[:header_count]
     rows = lines[header_count:]
+    header_text = "\n".join(header)
+    header_tokens = approximate_token_count(header_text)
+    if not rows or header_tokens >= max_tokens:
+        return recursive_split(content, max_tokens, 0)
+
+    row_budget = max(1, max_tokens - header_tokens)
     parts: list[str] = []
     current = list(header)
     for row in rows:
-        candidate = "\n".join([*current, row])
-        if len(current) > header_count and approximate_token_count(candidate) > max_tokens:
-            parts.append("\n".join(current))
-            current = [*header, row]
+        if approximate_token_count(row) <= row_budget:
+            row_parts = [row]
         else:
-            current.append(row)
+            # recursive_split bảo vệ nguyên dòng Markdown table. Bỏ hai pipe
+            # ngoài trước khi chia để một cell/row cực dài vẫn được giới hạn,
+            # rồi bọc lại thành dòng table cho từng phần.
+            row_body = row.strip().strip("|").strip()
+            body_budget = max(1, row_budget - 2)
+            row_parts = [
+                f"| {part} |"
+                for part in recursive_split(row_body, body_budget, 0)
+            ]
+        for row_part in row_parts:
+            candidate = "\n".join([*current, row_part])
+            if (
+                len(current) > header_count
+                and approximate_token_count(candidate) > max_tokens
+            ):
+                parts.append("\n".join(current))
+                current = [*header, row_part]
+            else:
+                current.append(row_part)
     if len(current) > header_count:
         parts.append("\n".join(current))
     return parts or [content]

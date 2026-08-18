@@ -55,6 +55,7 @@ class DocumentBlock:
     reading_order: Optional[int] = None
     ocr_confidence: Optional[float] = None
     ocr_engine: str = ""
+    ocr_regions: int = 0
 
 @dataclass
 class TextLine:
@@ -73,7 +74,7 @@ class MuPDFTextExtractor:
     @staticmethod
     def available() -> bool:
         try:
-            import fitz  # noqa
+            import pymupdf  # noqa
             return True
         except ImportError:
             return False
@@ -85,6 +86,8 @@ class MuPDFTextExtractor:
         {"text": str, "y0": float, "y1": float, "x0": float, "x1": float,
          "font_size": float, "bold": bool}
         """
+        import pymupdf as fitz
+
         blocks = []
         raw_blocks = fitz_page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)["blocks"]
         for b in raw_blocks:
@@ -145,6 +148,11 @@ class PDFTextCleaner:
         "14": "•", "15": "·", "16": "™", "17": "©", "18": "®",
         "25": "°", "30": "Ω", "32": "·",
     }
+    _PRIVATE_USE_MAP = {
+        "\ue081": "(",
+        "\ue082": ")",
+        "\ue092": ":",
+    }
 
     @staticmethod
     def clean(text: str) -> str:
@@ -156,6 +164,12 @@ class PDFTextCleaner:
         def replace_cid(m):
             return PDFTextCleaner._CID_MAP.get(m.group(1), "")
         text = re.sub(r"\(cid:(\d+)\)", replace_cid, text)
+
+        # Một số PDF xuất từ bộ font Inter/Google Docs dùng Private Use Area
+        # cho dấu ngoặc và dấu hai chấm. Chỉ thay các mã đã được xác minh;
+        # giữ nguyên PUA lạ để tránh đoán sai glyph của font tùy biến.
+        text = "".join(PDFTextCleaner._PRIVATE_USE_MAP.get(char, char) for char in text)
+        text = text.replace("\u200b", " ").replace("\ufeff", " ")
 
         # Không suy đoán đơn vị điện từ text hợp lệ. kW, MW, W và mF đều là
         # các đơn vị SI có nghĩa riêng; tự đổi chúng thành kΩ, MΩ, Ω hoặc µF
@@ -305,7 +319,8 @@ class MarkdownCompiler:
                     if block.ocr_confidence is not None:
                         markdown_lines.append(
                             f"<!-- ocr-meta: engine={block.ocr_engine or 'unknown'}; "
-                            f"confidence={block.ocr_confidence:.4f}; regions=1; "
+                            f"confidence={block.ocr_confidence:.4f}; "
+                            f"regions={block.ocr_regions or 1}; "
                             f"bbox={block.bbox.x1:.1f},{block.bbox.y1:.1f},"
                             f"{block.bbox.x2:.1f},{block.bbox.y2:.1f} -->\n"
                         )
@@ -399,6 +414,11 @@ class LocalPDFParser:
     def _normalize_string(self, text: str) -> str:
         return re.sub(r"\s+", "", text).lower()
 
+    @staticmethod
+    def _starts_like_heading(text: str) -> bool:
+        first = next((char for char in text.strip() if char.isalnum()), "")
+        return bool(first) and (first.isupper() or first.isdigit())
+
     def _detect_column_boundaries(self, page) -> List[Tuple[float, float]]:
         """Phát hiện ranh giới đa cột cục bộ."""
         if not page.chars:
@@ -464,9 +484,10 @@ class LocalPDFParser:
             if is_bold:
                 if cleaned.startswith(("BƯỚC", "BUOC", "Step")):
                     return BlockType.HEADER_2
-                if len(cleaned.split()) <= 10:
-                    return BlockType.HEADER_1
-                return BlockType.HEADER_2
+                if self._starts_like_heading(cleaned):
+                    if len(cleaned.split()) <= 10:
+                        return BlockType.HEADER_1
+                    return BlockType.HEADER_2
         return BlockType.PARAGRAPH
 
     def _determine_block_type_ocr(
@@ -756,10 +777,14 @@ class LocalPDFParser:
             elif is_bold:
                 if text.startswith(("BƯỚC", "BUOC", "Step")):
                     btype = BlockType.HEADER_2
-                elif len(text.split()) <= 10:
-                    btype = BlockType.HEADER_1
+                elif self._starts_like_heading(text):
+                    btype = (
+                        BlockType.HEADER_1
+                        if len(text.split()) <= 10
+                        else BlockType.HEADER_2
+                    )
                 else:
-                    btype = BlockType.HEADER_2
+                    btype = BlockType.PARAGRAPH
             else:
                 btype = BlockType.PARAGRAPH
 
@@ -1038,6 +1063,8 @@ class LocalPDFParser:
                     elif el["type"] == "image":
                         img = el["data"]
                         bbox = (img["x0"], img["top"], img["x1"], img["bottom"])
+                        image_width = float(img["x1"]) - float(img["x0"])
+                        image_height = float(img["bottom"]) - float(img["top"])
                         safe_bbox = (
                             max(0.0, bbox[0]),
                             max(0.0, bbox[1]),
@@ -1049,11 +1076,12 @@ class LocalPDFParser:
                         ocr_text = ""
                         ocr_confidence = None
                         ocr_engine = ""
+                        ocr_regions = 0
                         should_ocr_image = (
                             os.getenv("OCR_EMBEDDED_IMAGES", "true").lower() in {"1", "true", "yes"}
-                            and w >= 36
-                            and h >= 18
-                            and (w * h) / page_area >= 0.002
+                            and image_width >= 36
+                            and image_height >= 18
+                            and (image_width * image_height) / page_area >= 0.002
                         )
                         if should_ocr_image:
                             try:
@@ -1063,6 +1091,7 @@ class LocalPDFParser:
                                 ocr_text = ocr_result.text
                                 ocr_confidence = ocr_result.confidence
                                 ocr_engine = ocr_result.engine
+                                ocr_regions = len(ocr_result.regions)
                             except Exception as e:
                                 logger.debug(f"Không thể OCR ảnh: {e}")
 
@@ -1086,6 +1115,7 @@ class LocalPDFParser:
                             ocr_text=ocr_text,    # "" nếu OCR không ra gì
                             ocr_confidence=ocr_confidence,
                             ocr_engine=ocr_engine,
+                            ocr_regions=ocr_regions,
                         ))
         return col_blocks
 
@@ -1118,7 +1148,7 @@ class LocalPDFParser:
         mupdf_font_stats = None
         if use_mupdf:
             try:
-                import fitz
+                import pymupdf as fitz
                 fitz_doc = fitz.open(pdf_path)
                 mupdf_font_stats = MuPDFTextExtractor.compute_font_stats_from_doc(fitz_doc)
                 logger.info(
