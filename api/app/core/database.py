@@ -1,8 +1,9 @@
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker,AsyncSession
 import os 
-DATABASE_URL = os.getenv("DATABASE_URL","sqlite+aiosqlite:///./knowledge_base.db")
-engine  = create_async_engine(DATABASE_URL, echo=True)
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./knowledge_base.db")
+SQL_ECHO = os.getenv("SQL_ECHO", "false").lower() == "true"
+engine = create_async_engine(DATABASE_URL, echo=SQL_ECHO)
 Base = declarative_base()
 AsyncSessionLocal = async_sessionmaker(bind = engine, class_= AsyncSession, expire_on_commit= False)
 
