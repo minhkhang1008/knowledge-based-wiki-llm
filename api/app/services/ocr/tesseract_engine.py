@@ -99,6 +99,7 @@ class TesseractEngine(BaseOCREngine):
                 "top": float(ocr_data["top"][i]) * scale,
                 "x1": (float(ocr_data["left"][i]) + float(ocr_data["width"][i])) * scale,
                 "bottom": (float(ocr_data["top"][i]) + float(ocr_data["height"][i])) * scale,
+                "confidence": conf / 100.0,
             })
 
         logger.info(f"Tesseract nhận dạng được {len(words)} words")

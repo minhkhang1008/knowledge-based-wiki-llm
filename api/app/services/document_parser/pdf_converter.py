@@ -51,6 +51,10 @@ class DocumentBlock:
     content: str
     confidence: float = 1.0
     ocr_text: str = ""  # OCR text từ ảnh (chỉ dùng với BlockType.IMAGE)
+    page_number: Optional[int] = None
+    reading_order: Optional[int] = None
+    ocr_confidence: Optional[float] = None
+    ocr_engine: str = ""
 
 @dataclass
 class TextLine:
@@ -153,12 +157,9 @@ class PDFTextCleaner:
             return PDFTextCleaner._CID_MAP.get(m.group(1), "")
         text = re.sub(r"\(cid:(\d+)\)", replace_cid, text)
 
-        # Ký hiệu điện tử bị encode sai — chỉ convert khi đứng sau số
-        # để tránh nhầm với đơn vị kilowatt/megawatt trong tài liệu năng lượng
-        text = re.sub(r"(\d)\s*kW(?!\w)", r"\1 kΩ", text)   # 100kW → 100 kΩ (chỉ sau số)
-        text = re.sub(r"(\d)\s*MW(?!\w)", r"\1 MΩ", text)   # 10MW → 10 MΩ (chỉ sau số)
-        text = re.sub(r"\b(\d+(?:\.\d+)?)\s*W\b", r"\1 Ω", text)
-        text = re.sub(r"\b(\d+(?:\.\d+)?)\s*m\s*F\b", r"\1 µF", text)
+        # Không suy đoán đơn vị điện từ text hợp lệ. kW, MW, W và mF đều là
+        # các đơn vị SI có nghĩa riêng; tự đổi chúng thành kΩ, MΩ, Ω hoặc µF
+        # sẽ làm sai nội dung tài liệu nguồn.
         text = text.replace("»", "≈").replace("«", "≈")
         # °C: chỉ convert khi C đứng sau số/dấu gạch ngang, không sau chữ cái
         text = re.sub(r"(\d)\s+C\b(?!\w)", r"\1°C", text)     # 25 C → 25°C
@@ -287,13 +288,28 @@ class MarkdownCompiler:
     @staticmethod
     def compile(blocks: List[DocumentBlock]) -> str:
         markdown_lines: List[str] = []
+        current_page: Optional[int] = None
         for block in blocks:
+            if block.page_number is not None and block.page_number != current_page:
+                current_page = block.page_number
+                # HTML comment không ảnh hưởng render Markdown nhưng giữ được
+                # nguồn trang cho bước chunking/citation phía sau.
+                markdown_lines.append(f"\n<!-- page: {current_page} -->\n")
+
             cleaned_content = PDFTextCleaner.clean(block.content.strip())
 
             # IMAGE không cần content — kiểm tra ocr_text riêng
             if block.block_type == BlockType.IMAGE:
                 if block.ocr_text:
-                    markdown_lines.append(f'\n<img>\n"""\n{block.ocr_text}\n"""\n')
+                    markdown_lines.append("\n<img>\n")
+                    if block.ocr_confidence is not None:
+                        markdown_lines.append(
+                            f"<!-- ocr-meta: engine={block.ocr_engine or 'unknown'}; "
+                            f"confidence={block.ocr_confidence:.4f}; regions=1; "
+                            f"bbox={block.bbox.x1:.1f},{block.bbox.y1:.1f},"
+                            f"{block.bbox.x2:.1f},{block.bbox.y2:.1f} -->\n"
+                        )
+                    markdown_lines.append(f'"""\n{block.ocr_text}\n"""\n')
                 elif cleaned_content:
                     markdown_lines.append(f"\n<img> {cleaned_content}\n")
                 else:
@@ -322,8 +338,57 @@ class MarkdownCompiler:
 
 class DocumentLayoutSorter:
     def sort_blocks(self, blocks: List[DocumentBlock]) -> List[DocumentBlock]:
-        """Sắp xếp blocks theo Y trước, X sau — hỗ trợ thứ tự đọc đa cột."""
-        return sorted(blocks, key=lambda b: (round(b.bbox.y1, 1), b.bbox.x1))
+        """Sắp xếp theo trang và thứ tự cột đã xác định khi parse."""
+        return sorted(
+            blocks,
+            key=lambda b: (
+                b.page_number if b.page_number is not None else 0,
+                b.reading_order if b.reading_order is not None else 10**9,
+                round(b.bbox.y1, 1) if b.reading_order is None else 0,
+                b.bbox.x1 if b.reading_order is None else 0,
+            ),
+        )
+
+
+class RepeatedMarginFilter:
+    """Remove short headers/footers repeated across at least three pages."""
+
+    @staticmethod
+    def _normalize(text: str) -> str:
+        return re.sub(r"\s+", " ", text).strip().casefold()
+
+    def filter(self, blocks: List[DocumentBlock]) -> List[DocumentBlock]:
+        by_page: Dict[int, List[DocumentBlock]] = defaultdict(list)
+        for block in blocks:
+            if block.page_number is not None:
+                by_page[block.page_number].append(block)
+        if len(by_page) < 3:
+            return blocks
+
+        occurrences: Dict[str, set[int]] = defaultdict(set)
+        margin_keys: Dict[int, set[str]] = defaultdict(set)
+        for page_number, page_blocks in by_page.items():
+            ordered = sorted(page_blocks, key=lambda block: (block.bbox.y1, block.bbox.x1))
+            candidates = [*ordered[:2], *ordered[-2:]]
+            for block in candidates:
+                key = self._normalize(block.content or block.ocr_text)
+                if key and len(key) <= 160:
+                    occurrences[key].add(page_number)
+                    margin_keys[page_number].add(key)
+
+        threshold = max(3, int(len(by_page) * 0.6 + 0.999))
+        repeated = {key for key, pages in occurrences.items() if len(pages) >= threshold}
+        if not repeated:
+            return blocks
+        return [
+            block
+            for block in blocks
+            if not (
+                block.page_number is not None
+                and self._normalize(block.content or block.ocr_text) in repeated
+                and self._normalize(block.content or block.ocr_text) in margin_keys[block.page_number]
+            )
+        ]
 
 
 class LocalPDFParser:
@@ -899,7 +964,17 @@ class LocalPDFParser:
 
         words = page.extract_words(keep_blank_chars=False)
         is_scanned = False
-        if not words:
+        native_characters = sum(len(str(word.get("text", ""))) for word in words)
+        image_coverage = min(
+            1.0,
+            sum(
+                max(0.0, float(image["x1"]) - float(image["x0"]))
+                * max(0.0, float(image["bottom"]) - float(image["top"]))
+                for image in page.images
+            ) / page_area if page_area else 0.0,
+        )
+        needs_page_ocr = not words or (native_characters < 20 and image_coverage >= 0.5)
+        if needs_page_ocr:
             # Chạy tác vụ OCR bất đồng bộ không gây nghẽn hệ thống
             words = await self._extract_words_via_ocr_async(page)
             is_scanned = bool(words)
@@ -923,7 +998,9 @@ class LocalPDFParser:
                     for line in TextLineGrouper.group(bw):
                         col_blocks.append(DocumentBlock(
                             block_type=self._determine_block_type_ocr(line, ocr_most_used_h, ocr_max_h),
-                            bbox=line.bbox, content=line.text,
+                            bbox=line.bbox,
+                            content=line.text,
+                            confidence=sum(float(word.get("confidence", 1.0)) for word in line.words) / len(line.words),
                         ))
                 elif mupdf_blocks is not None:
                     # Dùng pymupdf blocks — unicode tốt hơn, không bị encode artifact
@@ -968,14 +1045,26 @@ class LocalPDFParser:
                             min(float(page.height), bbox[3]),
                         )
 
-                        # Luôn OCR ảnh để lấy nội dung text
+                        # OCR ảnh đủ lớn; cache trong ocr_utils ngăn xử lý lặp.
                         ocr_text = ""
-                        try:
-                            pil_img = page.crop(safe_bbox).to_image(resolution=150).original
-                            from app.services.ocr.ocr_utils import ocr_image_to_text
-                            ocr_text = ocr_image_to_text(pil_img)
-                        except Exception as e:
-                            logger.debug(f"Không thể OCR ảnh: {e}")
+                        ocr_confidence = None
+                        ocr_engine = ""
+                        should_ocr_image = (
+                            os.getenv("OCR_EMBEDDED_IMAGES", "true").lower() in {"1", "true", "yes"}
+                            and w >= 36
+                            and h >= 18
+                            and (w * h) / page_area >= 0.002
+                        )
+                        if should_ocr_image:
+                            try:
+                                pil_img = page.crop(safe_bbox).to_image(resolution=150).original
+                                from app.services.ocr.ocr_utils import ocr_image_to_result
+                                ocr_result = ocr_image_to_result(pil_img)
+                                ocr_text = ocr_result.text
+                                ocr_confidence = ocr_result.confidence
+                                ocr_engine = ocr_result.engine
+                            except Exception as e:
+                                logger.debug(f"Không thể OCR ảnh: {e}")
 
                         # Lưu file ảnh chỉ khi có image_output_dir
                         saved_path = ""
@@ -995,6 +1084,8 @@ class LocalPDFParser:
                             bbox=BoundingBox(*bbox),
                             content=saved_path,   # "" nếu không lưu
                             ocr_text=ocr_text,    # "" nếu OCR không ra gì
+                            ocr_confidence=ocr_confidence,
+                            ocr_engine=ocr_engine,
                         ))
         return col_blocks
 
@@ -1055,6 +1146,7 @@ class LocalPDFParser:
 
                 logger.info(f"Body font: {mfn} | size: {mfs}pt | max: {maxfs}pt | bold: {bold_fonts}")
 
+                reading_order = 0
                 for page_idx, page in enumerate(pdf.pages):
                     logger.info(f"Đang phân tích cấu trúc trang {page_idx + 1}/{len(pdf.pages)}")
 
@@ -1074,18 +1166,24 @@ class LocalPDFParser:
                             image_output_dir, img_counter,
                             mupdf_blocks=mupdf_page_blocks,
                         )
+                        for block in col_blocks:
+                            block.page_number = page_idx + 1
+                            reading_order += 1
+                            block.reading_order = reading_order
                         extracted_blocks.extend(col_blocks)
         finally:
             if fitz_doc:
                 fitz_doc.close()
 
-        return self.sorter.sort_blocks(extracted_blocks)
+        filtered_blocks = RepeatedMarginFilter().filter(extracted_blocks)
+        return self.sorter.sort_blocks(filtered_blocks)
 
 class LocalCoreEngine:
     def __init__(self):
         self.sorter = DocumentLayoutSorter()
-        # Khởi tạo ThreadPool gồm 4 Core Workers xử lý OCR nền
-        self.executor = ThreadPoolExecutor(max_workers=4)
+        # OCR dùng nhiều RAM; mặc định 2 worker ổn định hơn trên máy local.
+        ocr_workers = max(1, int(os.getenv("OCR_MAX_WORKERS", "2")))
+        self.executor = ThreadPoolExecutor(max_workers=ocr_workers)
         self.pdf_parser = LocalPDFParser(self.sorter, self.executor)
 
     async def extract_markdown_string_async(

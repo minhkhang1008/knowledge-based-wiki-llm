@@ -75,6 +75,7 @@ class EasyOCREngine(BaseOCREngine):
                 "top": min(ys) * scale,
                 "x1": max(xs) * scale,
                 "bottom": max(ys) * scale,
+                "confidence": float(conf),
             })
 
         logger.info(f"EasyOCR nhận dạng được {len(words)} vùng text")
