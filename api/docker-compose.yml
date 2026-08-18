@@ -4,9 +4,18 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./images:/app/images
-      - ./uploads:/app/uploads
+      - api-data:/data
+    environment:
+      DATABASE_URL: sqlite+aiosqlite:////data/knowledge_base.db
+      CHROMA_PERSIST_PATH: /data/chroma_db
+      EXTRACTED_DATA_DIR: /data/extracted_data
+      OLLAMA_HOST: http://host.docker.internal:11434
     env_file:
       - path: .env
-        required: false      # không crash nếu .env chưa có
+        required: false
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
+
+volumes:
+  api-data:

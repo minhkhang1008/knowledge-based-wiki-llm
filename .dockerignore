@@ -1,0 +1,10 @@
+.git
+.github
+.venv
+**/__pycache__
+**/.pytest_cache
+**/*.pyc
+**/.env
+**/*.db
+**/chroma_db
+api/storage

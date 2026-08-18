@@ -9,6 +9,9 @@ env/
 *.pyo
 *.pyd
 .Python
+.pytest_cache/
+.coverage
+htmlcov/
 
 # Virtual environments
 .venv/
@@ -47,5 +50,6 @@ uv.lock
 api/uploads/
 api/images/
 api/storage/
+storage/
 api/app/core/testing.py
 api/tests/test_article_lifecycle_service.py

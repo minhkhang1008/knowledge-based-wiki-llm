@@ -28,9 +28,12 @@ _LEGACY_FORMATS = {
 }
 
 class DocumentParserPipeline:
-    def __init__(self, output_base_dir: str = "storage/extracted_data"):
-        self.output_base_dir = output_base_dir
-        os.makedirs(output_base_dir, exist_ok=True)
+    def __init__(self, output_base_dir: str | None = None):
+        self.output_base_dir = output_base_dir or os.getenv(
+            "EXTRACTED_DATA_DIR",
+            "storage/extracted_data",
+        )
+        os.makedirs(self.output_base_dir, exist_ok=True)
 
     @staticmethod
     def is_supported(file_path: str) -> bool:

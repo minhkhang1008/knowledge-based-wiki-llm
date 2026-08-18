@@ -1,0 +1,69 @@
+name: knowledge-wiki
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  ollama-init:
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        ollama pull ${OLLAMA_EMBED_MODEL:-nomic-embed-text} &&
+        ollama pull ${OLLAMA_CHAT_MODEL:-llama3.2}
+    restart: "no"
+
+  api:
+    build:
+      context: ./api
+    depends_on:
+      ollama-init:
+        condition: service_completed_successfully
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: sqlite+aiosqlite:////data/knowledge_base.db
+      CHROMA_PERSIST_PATH: /data/chroma_db
+      EXTRACTED_DATA_DIR: /data/extracted_data
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-nomic-embed-text}
+      OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-llama3.2}
+      RAG_TOP_K: ${RAG_TOP_K:-5}
+      RAG_DISTANCE_THRESHOLD: ${RAG_DISTANCE_THRESHOLD:-0.68}
+      MAX_UPLOAD_SIZE_MB: ${MAX_UPLOAD_SIZE_MB:-25}
+      ENABLE_LEGACY_OFFICE_FORMATS: "false"
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost:3000}
+    volumes:
+      - knowledge-data:/data
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  knowledge-data:
+  ollama-data:
