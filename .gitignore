@@ -53,3 +53,14 @@ api/storage/
 storage/
 api/app/core/testing.py
 api/tests/test_article_lifecycle_service.py
+agent.md
+node_modules
+.next
+out
+.env.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+upload.nextjs/.gitignore

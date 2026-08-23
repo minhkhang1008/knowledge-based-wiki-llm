@@ -1,0 +1,83 @@
+:root {
+  --bg: #f8f4e8;
+  --panel: #fefaf1;
+  --ink: #141414;
+  --ink-subtle: #545146;
+  --line: #d9cfb6;
+  --accent: #0f766e;
+  --accent-strong: #115e59;
+  --warn: #a93b26;
+  --ok: #2d6a4f;
+  --shadow: 0 20px 45px rgba(20, 20, 20, 0.1);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+}
+
+body {
+  color: var(--ink);
+  font-family: var(--font-body), monospace;
+  background:
+    radial-gradient(circle at 20% 10%, #f2d8a7 0%, transparent 38%),
+    radial-gradient(circle at 100% 0%, #cdebe6 0%, transparent 40%),
+    var(--bg);
+  background-attachment: fixed;
+}
+
+main {
+  max-width: 1160px;
+  margin: 0 auto;
+  padding: 28px 16px 40px;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-heading), sans-serif;
+  letter-spacing: -0.02em;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+@keyframes panelIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes stripe {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 40px 0;
+  }
+}
