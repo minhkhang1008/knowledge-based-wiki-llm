@@ -1,5 +1,6 @@
 import os
 import chromadb
+from datetime import datetime
 from dotenv import load_dotenv
 from app.core.ollama_client import generate_embedding
 
@@ -7,7 +8,20 @@ load_dotenv()
 
 # 3.1: Kết nối ChromaDB
 persist_path = os.getenv("CHROMA_PERSIST_PATH", "./chroma_db")
-client = chromadb.PersistentClient(path=persist_path)
+
+
+def _build_chroma_client() -> chromadb.ClientAPI:
+    try:
+        return chromadb.PersistentClient(path=persist_path)
+    except Exception:
+        # Fallback giúp API vẫn khởi động khi thư mục Chroma cũ bị lỗi schema,
+        # để frontend có thể demo/upload bình thường thay vì crash toàn bộ app.
+        fallback_path = f"{persist_path}_fallback_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        os.makedirs(fallback_path, exist_ok=True)
+        return chromadb.PersistentClient(path=fallback_path)
+
+
+client = _build_chroma_client()
 
 # Lấy hoặc tạo collection "chunks"
 collection = client.get_or_create_collection("chunks")
