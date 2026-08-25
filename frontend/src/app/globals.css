@@ -1,0 +1,108 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Palette tuned to the ChatGPT interface:
+ * light mode sits on white with #f9f9f9 rails, dark mode on #212121
+ * with #171717 rails. Values are RGB triplets for Tailwind alpha support.
+ */
+:root {
+  --sb-canvas: 255 255 255;
+  --sb-surface: 249 249 249;
+  --sb-elevated: 255 255 255;
+  --sb-hover: 236 236 236;
+  --sb-line: 227 227 227;
+  --sb-ink: 13 13 13;
+  --sb-muted: 93 93 93;
+  --sb-faint: 143 143 143;
+  --sb-accent: 13 13 13;
+  --sb-danger: 185 28 28;
+  --sb-warning: 146 64 14;
+}
+
+.dark {
+  --sb-canvas: 33 33 33;
+  --sb-surface: 23 23 23;
+  --sb-elevated: 48 48 48;
+  --sb-hover: 60 60 60;
+  --sb-line: 66 66 66;
+  --sb-ink: 236 236 236;
+  --sb-muted: 175 175 175;
+  --sb-faint: 141 141 141;
+  --sb-accent: 255 255 255;
+  --sb-danger: 248 113 113;
+  --sb-warning: 251 191 36;
+}
+
+* {
+  border-color: rgb(var(--sb-line));
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background-color: rgb(var(--sb-canvas));
+  color: rgb(var(--sb-ink));
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Visible focus ring on every interactive element. */
+:focus-visible {
+  outline: 2px solid rgb(var(--sb-ink));
+  outline-offset: 2px;
+  border-radius: 0.5rem;
+}
+
+.dark :focus-visible {
+  outline-color: rgb(var(--sb-accent));
+}
+
+/* Thin scrollbars, matching the reference UI. */
+@supports (scrollbar-width: thin) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--sb-line)) transparent;
+  }
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: rgb(var(--sb-line));
+  border-radius: 9999px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Screen-reader-only helper. */
+.sr-only-focusable:not(:focus):not(:focus-within) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
