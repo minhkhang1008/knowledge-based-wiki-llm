@@ -238,7 +238,7 @@ export default function AskPage() {
                             </span>
                           </div>
                           <p className="text-white/50 line-clamp-3 text-xs italic border-l-2 border-white/20 pl-2">
-                            "{source.text}"
+                            &quot;{source.text}&quot;
                           </p>
                         </div>
                       ))}
