@@ -75,7 +75,7 @@ def load_corpus(path: Path) -> list[dict[str, str]]:
 
 
 async def seed_corpus(chunks: list[dict[str, str]]) -> None:
-    from app.core.ollama_client import generate_embedding
+    from app.core.ollama_client import generate_embeddings
     from app.core.database import AsyncSessionLocal, init_db
     from app.models.article import Article
     from app.services.services_vector_db import collection
@@ -106,9 +106,7 @@ async def seed_corpus(chunks: list[dict[str, str]]) -> None:
             await session.execute(article_stmt)
         await session.commit()
 
-    embeddings: list[list[float]] = []
-    for chunk in chunks:
-        embeddings.append(await generate_embedding(chunk["text"]))
+    embeddings = await generate_embeddings([chunk["text"] for chunk in chunks])
 
     ids = [chunk["id"] for chunk in chunks]
     collection.delete(ids=ids)

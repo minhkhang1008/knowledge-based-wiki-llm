@@ -37,17 +37,43 @@ def _image_to_markdown(file_path: str | Path, output_dir: str) -> str:
     markdown = f"![{alt_text}](images/{file_path.name})\n"
 
     # OCR
-    ocr_text = _run_ocr(str(file_path))
-    if ocr_text:
-        markdown += f"\n> **Nội dung nhận dạng từ ảnh:**\n> {ocr_text}\n"
+    ocr_result = _run_ocr(str(file_path))
+    if not ocr_result.text:
+        from app.services.document_parser.vision_caption import generate_image_caption
+        from app.services.ocr.ocr_utils import OCRResult
+
+        caption, vision_model = generate_image_caption(file_path)
+        if caption:
+            ocr_result = OCRResult(
+                text=f"Mô tả trực quan: {caption}",
+                regions=[],
+                engine=f"vision:{vision_model}",
+                confidence=1.0,
+            )
+    if ocr_result.text:
+        bbox = ""
+        if ocr_result.regions:
+            bbox = "; bbox=" + ",".join(f"{value:.1f}" for value in (
+                min(region.bbox[0] for region in ocr_result.regions),
+                min(region.bbox[1] for region in ocr_result.regions),
+                max(region.bbox[2] for region in ocr_result.regions),
+                max(region.bbox[3] for region in ocr_result.regions),
+            ))
+        markdown += (
+            f"\n<!-- ocr-meta: engine={ocr_result.engine}; "
+            f"confidence={ocr_result.confidence:.4f}; regions={len(ocr_result.regions)}{bbox} -->\n"
+            "> **Nội dung nhận dạng từ ảnh:**\n> "
+            + ocr_result.text.replace("\n", "\n> ")
+            + "\n"
+        )
 
     return markdown
 
 
-def _run_ocr(image_path: str) -> str:
-    """Chạy OCR trên ảnh, trả về text hoặc "" nếu không có engine."""
-    from app.services.ocr.ocr_utils import ocr_image_file_to_text
-    return ocr_image_file_to_text(image_path)
+def _run_ocr(image_path: str):
+    """Chạy OCR trên ảnh và giữ confidence/region metadata."""
+    from app.services.ocr.ocr_utils import ocr_image_file_to_result
+    return ocr_image_file_to_result(image_path)
 
 
 # Đăng ký tất cả định dạng ảnh vào registry
