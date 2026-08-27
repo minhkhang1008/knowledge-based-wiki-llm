@@ -33,3 +33,37 @@ export function listArticles(
     signal,
   });
 }
+
+/** POST /api/v1/articles/upload */
+export function uploadArticle(
+  formData: FormData,
+  signal?: AbortSignal,
+): Promise<{ id: string; chunks_created: number; message: string }> {
+  return requestEnvelope<{ id: string; chunks_created: number; message: string }>(
+    "/api/v1/articles/upload",
+    {
+      method: "POST",
+      formData,
+      signal,
+    }
+  );
+}
+
+/** GET /api/articles/{article_id} */
+export function getArticle(
+  articleId: string,
+  signal?: AbortSignal,
+): Promise<Article> {
+  return requestEnvelope<Article>(`/api/articles/${articleId}`, { signal });
+}
+
+/** DELETE /api/articles/{article_id} */
+export function deleteArticle(
+  articleId: string,
+  signal?: AbortSignal,
+): Promise<{ message: string }> {
+  return requestEnvelope<{ message: string }>(`/api/articles/${articleId}`, {
+    method: "DELETE",
+    signal,
+  });
+}
