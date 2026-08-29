@@ -48,6 +48,8 @@ async def generate_embedding(text: str) -> list[float]:
                 f"Model '{OLLAMA_EMBED_MODEL}' không tồn tại. "
                 f"Vui lòng chạy: ollama pull {OLLAMA_EMBED_MODEL}"
             ) from exc
+        if exc.status_code == 500:
+            raise InvalidResponseError("Ollama báo lỗi nội bộ (500). Có thể máy hết RAM hoặc chunk văn bản quá dài.") from exc
         raise InvalidResponseError("Response không hợp lệ") from exc
     except httpx.ConnectError as exc:
         raise AIModelOfflineException("Ollama ngắt kết nối") from exc

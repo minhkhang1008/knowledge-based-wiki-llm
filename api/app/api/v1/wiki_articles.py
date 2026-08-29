@@ -140,7 +140,7 @@ async def delete_article_endpoint(
 
     return {
         "success": True,
-        "data": None,
+        "data": {"message": "Xóa article thành công"},
         "message": "Xóa article thành công",
         "error": None,
     }

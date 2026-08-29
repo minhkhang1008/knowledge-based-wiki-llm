@@ -1,48 +1,67 @@
-# Python
+# Byte-compiled / optimized / DLL files
 __pycache__/
-.venv/
-venv/
-ENV/
-env/
+*.py[cod]
+*$py.class
 
-*.pyc
-*.pyo
-*.pyd
+# C extensions
+*.so
+
+# Distribution / packaging
 .Python
-.pytest_cache/
-.coverage
-htmlcov/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+/lib/
+/lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
 
 # Virtual environments
 .venv/
 venv/
 ENV/
 env/
-
-# Environment variables (chứa secrets - không push)
 .env
-.python-version
 
 # Database
 *.db
 *.sqlite3
 chroma_db/
+qdrant_storage/
 
-# IDE
+# IDE and Editors
 .vscode/
-tesing.py
-# OS
-.DS_Store
-Thumbs.db
+.idea/
+*.swp
+*.swo
+*~
 
-# Build/lock files
-pyproject.toml
-uv.lock
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
 
 # Output/test files
-!README.md
+.pytest_cache/
+.coverage
+htmlcov/
 
-# Test data PDFs (tuỳ chọn - uncomment nếu muốn exclude)
+# Test data PDFs (tuỳ chọn)
 # *.pdf
 # *.PDF
 
@@ -50,6 +69,13 @@ uv.lock
 api/uploads/
 api/images/
 api/storage/
-storage/
+/storage/
+
+# Custom ignored files (Specific to project)
+tesing.py
 api/app/core/testing.py
 api/tests/test_article_lifecycle_service.py
+
+frontend/.next/
+frontend/node_modules/
+frontend/.env*.local
