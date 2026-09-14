@@ -53,6 +53,59 @@ def test_ui_facing_api_contract_is_registered(tmp_path, monkeypatch) -> None:
     assert {"articles", "qa_logs"} <= tables
 
 
+def test_startup_migrates_legacy_qa_logs_without_losing_data(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    database_path = tmp_path / "legacy.db"
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE qa_logs (
+                id INTEGER PRIMARY KEY,
+                question VARCHAR NOT NULL,
+                answer VARCHAR NOT NULL,
+                created_at DATETIME,
+                source JSON
+            )
+            """
+        )
+        connection.execute(
+            "INSERT INTO qa_logs (question, answer, source) VALUES (?, ?, ?)",
+            (
+                "Legacy question",
+                "Legacy answer",
+                '[{"document_id": "legacy-document"}]',
+            ),
+        )
+
+    import app.core.database as database
+    from app.main import app
+
+    migrated_engine = create_async_engine(
+        f"sqlite+aiosqlite:///{database_path}"
+    )
+    monkeypatch.setattr(database, "engine", migrated_engine)
+
+    with TestClient(app) as client:
+        assert client.get("/").status_code == 200
+
+    with sqlite3.connect(database_path) as connection:
+        columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(qa_logs)")
+        }
+        legacy_row = connection.execute(
+            "SELECT question, answer, sources FROM qa_logs"
+        ).fetchone()
+
+    assert "sources" in columns
+    assert legacy_row == (
+        "Legacy question",
+        "Legacy answer",
+        '[{"document_id": "legacy-document"}]',
+    )
+
+
 def test_supported_formats_only_include_ready_ingestion_paths() -> None:
     from app.main import app
 
