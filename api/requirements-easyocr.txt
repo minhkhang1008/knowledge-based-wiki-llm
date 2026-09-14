@@ -1,0 +1,5 @@
+-r requirements.txt
+
+# Optional GPU/ML OCR backend. The default Tesseract deployment does not need
+# PyTorch, TorchVision, or the EasyOCR model download.
+easyocr>=1.7.1,<2

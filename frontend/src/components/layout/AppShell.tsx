@@ -13,7 +13,7 @@ export function AppShell({ children }: AppShellProps) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   return (
-    <div className="min-h-screen bg-canvas">
+    <div className="min-h-[100dvh] bg-canvas">
       <a
         href="#main-content"
         className="sr-only-focusable absolute left-4 top-4 z-50 rounded-lg bg-ink px-3 py-2 text-sm font-medium text-canvas"

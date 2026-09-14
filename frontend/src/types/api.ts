@@ -46,11 +46,33 @@ export interface Article {
   updated_at: string;
 }
 
+/** POST /api/v1/articles/upload -> data */
+export interface IngestionData {
+  article: Article;
+  document_id: string;
+  chunk_count: number;
+}
+
 /** A retrieved chunk, shared by search results and QA sources. */
 export interface SourceChunk {
   text: string;
-  article_id: string;
-  source_file: string;
+  article_id: string | null;
+  source_file: string | null;
   page_number: number | null;
   distance: number | null;
+}
+
+export interface SearchData {
+  results: SourceChunk[] | null;
+}
+
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface AskData {
+  answer: string;
+  sources: SourceChunk[];
+  no_answer_reason: string | null;
 }

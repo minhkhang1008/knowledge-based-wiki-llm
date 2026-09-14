@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import tempfile
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -33,6 +35,20 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 MAX_UPLOAD_SIZE_MB = int(os.getenv("MAX_UPLOAD_SIZE_MB", "25"))
 MAX_UPLOAD_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024
+EXTRACTED_DATA_DIR = Path(
+    os.getenv("EXTRACTED_DATA_DIR", "storage/extracted_data")
+).resolve()
+DOCUMENT_ID_PATTERN = re.compile(r"^[a-f0-9]{64}$")
+RENDERABLE_ASSET_EXTENSIONS = {
+    ".bmp",
+    ".gif",
+    ".jpeg",
+    ".jpg",
+    ".png",
+    ".tif",
+    ".tiff",
+    ".webp",
+}
 
 
 async def _save_upload(file: UploadFile, destination: Path) -> None:
@@ -84,7 +100,7 @@ async def _ingest_upload(
             )
     except HTTPException:
         raise
-    except ValueError as exc:
+    except (ValueError, RuntimeError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except (
         AIModelOfflineException,
@@ -121,6 +137,28 @@ async def get_supported_formats() -> SupportedFormatsResponse:
             max_upload_size_mb=MAX_UPLOAD_SIZE_MB,
         ),
         message="Lấy định dạng ingest thành công",
+    )
+
+
+@router.get("/{document_id}/assets/{asset_path:path}", response_class=FileResponse)
+async def get_document_asset(document_id: str, asset_path: str) -> FileResponse:
+    """Serve only renderable assets produced for an ingested document."""
+    if not DOCUMENT_ID_PATTERN.fullmatch(document_id):
+        raise HTTPException(status_code=404, detail="Asset không tồn tại.")
+
+    document_dir = (EXTRACTED_DATA_DIR / document_id).resolve()
+    candidate = (document_dir / asset_path).resolve()
+    if (
+        candidate == document_dir
+        or document_dir not in candidate.parents
+        or candidate.suffix.lower() not in RENDERABLE_ASSET_EXTENSIONS
+        or not candidate.is_file()
+    ):
+        raise HTTPException(status_code=404, detail="Asset không tồn tại.")
+
+    return FileResponse(
+        candidate,
+        headers={"Cache-Control": "private, max-age=3600"},
     )
 
 

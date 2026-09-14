@@ -148,9 +148,7 @@ function readErrorBody(body: unknown): { message: string | null; code: string | 
     const detail =
       typeof errorRecord.detail === "string" ? errorRecord.detail : null;
     const message =
-      typeof record.message === "string" && record.message.trim() !== ""
-        ? record.message
-        : detail;
+      detail ?? (typeof record.message === "string" && record.message.trim() !== "" ? record.message : null);
     return { message, code, detail };
   }
 

@@ -1,4 +1,8 @@
-import type { Article, SupportedFormatsData } from "@/types/api";
+import type {
+  Article,
+  IngestionData,
+  SupportedFormatsData,
+} from "@/types/api";
 import { requestEnvelope } from "./client";
 
 /** GET /api/v1/articles/supported-formats */
@@ -30,6 +34,38 @@ export function listArticles(
     query.set("search", params.search.trim());
   }
   return requestEnvelope<Article[]>(`/api/articles?${query.toString()}`, {
+    signal,
+  });
+}
+
+/** POST /api/v1/articles/upload */
+export function uploadArticle(
+  formData: FormData,
+  signal?: AbortSignal,
+): Promise<IngestionData> {
+  return requestEnvelope<IngestionData>("/api/v1/articles/upload", {
+    method: "POST",
+    formData,
+    signal,
+    timeoutMs: 120_000,
+  });
+}
+
+/** GET /api/articles/{article_id} */
+export function getArticle(
+  articleId: string,
+  signal?: AbortSignal,
+): Promise<Article> {
+  return requestEnvelope<Article>(`/api/articles/${articleId}`, { signal });
+}
+
+/** DELETE /api/articles/{article_id} */
+export function deleteArticle(
+  articleId: string,
+  signal?: AbortSignal,
+): Promise<{ message: string }> {
+  return requestEnvelope<{ message: string }>(`/api/articles/${articleId}`, {
+    method: "DELETE",
     signal,
   });
 }

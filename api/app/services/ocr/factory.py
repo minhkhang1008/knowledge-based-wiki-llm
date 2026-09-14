@@ -19,10 +19,9 @@ class OCRFactory:
             if OCRFactory._instance is not None:
                 return OCRFactory._instance
 
-            engine_type = os.getenv("OCR_ENGINE_TYPE", "easyocr").lower()
+            engine_type = os.getenv("OCR_ENGINE_TYPE", "tesseract").lower()
             logger.info(f"Khởi tạo OCR engine: {engine_type}")
 
-            # ĐÃ SỬA: Thụt lề toàn bộ khối IF này vào bên trong `with _lock:`
             if engine_type == "easyocr":
                 from app.services.ocr.easyocr_engine import EasyOCREngine
                 OCRFactory._instance = EasyOCREngine(

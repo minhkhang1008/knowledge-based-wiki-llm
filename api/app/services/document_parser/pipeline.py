@@ -37,7 +37,7 @@ class DocumentParserPipeline:
 
     @staticmethod
     def is_supported(file_path: str) -> bool:
-        """Kiểm tra xem file có được hỗ trợ không."""
+        # Kiểm tra xem file có được hỗ trợ không
         ext = Path(file_path).suffix.lower()
         return ext in _DIRECT_FORMATS or ext in _LEGACY_FORMATS
 

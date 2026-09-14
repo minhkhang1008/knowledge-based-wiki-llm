@@ -15,6 +15,8 @@ Copy `.env.example` to `.env`. Important values:
 - `OLLAMA_CHAT_MODEL`: chat model.
 - `RAG_DISTANCE_THRESHOLD`: maximum accepted Chroma distance.
 - `MAX_UPLOAD_SIZE_MB`: streamed upload limit.
+- `OCR_ENGINE_TYPE`: OCR backend (`tesseract` is the Docker default).
+- `TESSERACT_LANG`: installed Tesseract language set, for example `eng+vie`.
 - `CORS_ORIGINS`: comma-separated frontend origins.
 - `ENABLE_LEGACY_OFFICE_FORMATS`: enables DOC, XLS, and PPT only when LibreOffice is installed.
 
@@ -25,7 +27,13 @@ Copy `.env.example` to `.env`. Important values:
 1. A converter registered under `app/services/document_parser`.
 2. A chunker registered under `app/services/chunking`.
 
-To add PDF or image ingest, register the corresponding chunker extension. The shared upload endpoint will then advertise and route that format automatically.
+PDF and common image formats are registered alongside the Office formats. To
+add another format, register both its converter and chunker; the shared upload
+endpoint will then advertise and route it automatically.
+
+Tesseract is the default OCR backend and is installed by the Docker image. To
+use the heavier EasyOCR/PyTorch backend in a custom environment, install
+`requirements-easyocr.txt` and set `OCR_ENGINE_TYPE=easyocr`.
 
 ## Data consistency
 

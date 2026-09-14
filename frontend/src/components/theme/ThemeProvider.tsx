@@ -38,8 +38,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         : window.matchMedia("(prefers-color-scheme: dark)").matches
           ? "dark"
           : "light";
-    setTheme(initial);
     applyTheme(initial);
+    const frame = window.requestAnimationFrame(() => setTheme(initial));
+    return () => window.cancelAnimationFrame(frame);
   }, []);
 
   const toggleTheme = useCallback(() => {

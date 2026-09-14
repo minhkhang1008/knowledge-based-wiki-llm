@@ -191,14 +191,15 @@ def _merge_with_overlap(units: list[str], chunk_size: int, overlap: int) -> list
             )
             continue
 
-        if current_units and current_tokens + unit_tokens > chunk_size:
+        candidate_tokens = approximate_token_count(_join_units([*current_units, unit]))
+        if current_units and candidate_tokens > chunk_size:
             chunks.append(_join_units(current_units))
             overlap_text = _take_overlap(chunks[-1], overlap)
             current_units = [overlap_text, unit] if overlap_text else [unit]
             current_tokens = approximate_token_count(_join_units(current_units))
         else:
             current_units.append(unit)
-            current_tokens += unit_tokens
+            current_tokens = candidate_tokens
 
     if current_units:
         chunks.append(_join_units(current_units))

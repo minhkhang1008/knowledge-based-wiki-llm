@@ -38,8 +38,8 @@ class PptxImageExtractor:
         if not alt_text:
             alt_text = shape.name if shape.name else f"Image_S{slide_idx}_P{shape_idx}"
 
-        # Dùng relative path trong markdown để portable
-        relative_path = os.path.relpath(image_path, start=os.path.dirname(output_dir))
+        # Path is relative to the per-document asset directory served by the API.
+        relative_path = os.path.relpath(image_path, start=output_dir)
         markdown_output = f"![{alt_text}]({relative_path})\n"
 
         # OCR nội dung chữ trong ảnh (nếu có engine)
