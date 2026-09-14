@@ -17,6 +17,30 @@ from app.core.exceptions import (
 client = AsyncClient()
 OLLAMA_CHAT_MODEL = os.getenv("OLLAMA_CHAT_MODEL", "llama3.2")
 OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
+OLLAMA_EMBED_BATCH_SIZE = max(1, int(os.getenv("OLLAMA_EMBED_BATCH_SIZE", "32")))
+
+
+def _normalize_embedding(content: object) -> list[float]:
+    if not isinstance(content, list) or not content:
+        raise EmptyEmbeddingError("Embedding rỗng")
+    if any(
+        isinstance(value, bool) or not isinstance(value, (int, float))
+        for value in content
+    ):
+        raise InvalidResponseError("Response không hợp lệ")
+    norm = math.sqrt(sum(float(value) ** 2 for value in content))
+    if norm == 0:
+        raise EmptyEmbeddingError("Embedding có norm bằng 0")
+    return [float(value) / norm for value in content]
+
+
+def _raise_embedding_response_error(exc: ollama.ResponseError) -> None:
+    if exc.status_code == 404:
+        raise ModelNotFoundError(
+            f"Model '{OLLAMA_EMBED_MODEL}' không tồn tại. "
+            f"Vui lòng chạy: ollama pull {OLLAMA_EMBED_MODEL}"
+        ) from exc
+    raise InvalidResponseError("Response không hợp lệ") from exc
 
 
 async def chat() -> None:
@@ -36,45 +60,58 @@ async def chat() -> None:
 
 
 async def generate_embedding(text: str) -> list[float]:
-    """Generate and L2-normalize an embedding for stable distance scores."""
-    try:
-        response = await client.embeddings(
-            model=OLLAMA_EMBED_MODEL,
-            prompt=text,
-        )
-    except ollama.ResponseError as exc:
-        if exc.status_code == 404:
-            raise ModelNotFoundError(
-                f"Model '{OLLAMA_EMBED_MODEL}' không tồn tại. "
-                f"Vui lòng chạy: ollama pull {OLLAMA_EMBED_MODEL}"
-            ) from exc
-        raise InvalidResponseError("Response không hợp lệ") from exc
-    except httpx.ConnectError as exc:
-        raise AIModelOfflineException("Ollama ngắt kết nối") from exc
-    except httpx.TimeoutException as exc:
-        raise RequestTimeoutError(
-            "Yêu cầu sinh embedding text hết thời gian chờ"
-        ) from exc
+    """Generate one embedding through the current batch-capable API."""
+    embeddings = await generate_embeddings([text], batch_size=1)
+    return embeddings[0]
 
-    if isinstance(response, dict):
-        content = response.get("embedding")
-    else:
-        content = getattr(response, "embedding", None)
 
-    if not isinstance(content, list) or not content:
-        raise EmptyEmbeddingError("Embedding rỗng")
+async def generate_embeddings(
+    texts: list[str],
+    batch_size: int | None = None,
+) -> list[list[float]]:
+    """Generate normalized embeddings in model-level batches."""
+    if not texts:
+        return []
+    if any(not isinstance(text, str) or not text.strip() for text in texts):
+        raise EmptyEmbeddingError("Không thể embedding nội dung rỗng")
 
-    if any(
-        isinstance(value, bool) or not isinstance(value, (int, float))
-        for value in content
-    ):
-        raise InvalidResponseError("Response không hợp lệ")
+    size = batch_size or OLLAMA_EMBED_BATCH_SIZE
+    if size <= 0:
+        raise ValueError("batch_size phải lớn hơn 0")
+    output: list[list[float]] = []
 
-    norm = math.sqrt(sum(float(value) ** 2 for value in content))
-    if norm == 0:
-        raise EmptyEmbeddingError("Embedding có norm bằng 0")
+    for start in range(0, len(texts), size):
+        batch = texts[start : start + size]
+        try:
+            embed_method = getattr(client, "embed", None)
+            if callable(embed_method):
+                response = await embed_method(model=OLLAMA_EMBED_MODEL, input=batch)
+                raw_embeddings = (
+                    response.get("embeddings")
+                    if isinstance(response, dict)
+                    else getattr(response, "embeddings", None)
+                )
+            else:
+                raw_embeddings = []
+                for text in batch:
+                    response = await client.embeddings(model=OLLAMA_EMBED_MODEL, prompt=text)
+                    raw_embeddings.append(
+                        response.get("embedding")
+                        if isinstance(response, dict)
+                        else getattr(response, "embedding", None)
+                    )
+        except ollama.ResponseError as exc:
+            _raise_embedding_response_error(exc)
+        except httpx.ConnectError as exc:
+            raise AIModelOfflineException("Ollama ngắt kết nối") from exc
+        except httpx.TimeoutException as exc:
+            raise RequestTimeoutError("Yêu cầu sinh embedding batch hết thời gian chờ") from exc
 
-    return [float(value) / norm for value in content]
+        if not isinstance(raw_embeddings, list) or len(raw_embeddings) != len(batch):
+            raise InvalidResponseError("Số embedding trả về không khớp batch đầu vào")
+        output.extend(_normalize_embedding(embedding) for embedding in raw_embeddings)
+
+    return output
 
 
 async def generate_chat(prompt: str) -> str:

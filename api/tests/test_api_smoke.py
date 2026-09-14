@@ -60,5 +60,19 @@ def test_supported_formats_only_include_ready_ingestion_paths() -> None:
 
     assert response.status_code == 200
     payload = response.json()["data"]
-    assert payload["extensions"] == [".docx", ".pptx", ".xlsm", ".xlsx"]
+    assert payload["extensions"] == [
+        ".bmp",
+        ".docx",
+        ".gif",
+        ".jpeg",
+        ".jpg",
+        ".pdf",
+        ".png",
+        ".pptx",
+        ".tif",
+        ".tiff",
+        ".webp",
+        ".xlsm",
+        ".xlsx",
+    ]
     assert payload["max_upload_size_mb"] > 0
