@@ -8,8 +8,8 @@ logger = logging.getLogger("ocr.easyocr")
 
 class EasyOCREngine(BaseOCREngine):
     """
-    OCR engine dùng EasyOCR — primary engine.
-    Không cần binary riêng, chạy thuần Python + PyTorch (đã có trong requirements.txt).
+    OCR engine EasyOCR tùy chọn.
+    Không cần binary riêng, nhưng cần PyTorch từ requirements-easyocr.txt.
     Hỗ trợ tiếng Việt và tiếng Anh built-in.
 
     Reader được khởi tạo lazy (lần đầu gọi) và cache lại để tái dùng giữa các trang.

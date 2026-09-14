@@ -173,6 +173,17 @@ def _split_table(content: str, max_tokens: int) -> list[str]:
     if approximate_token_count(content) <= max_tokens:
         return [content]
 
+    # OCR can mistake a pipe-delimited sentence for a Markdown table. A valid
+    # table needs at least a header and one additional line; fall back to the
+    # generic splitter instead of indexing lines[1] unconditionally.
+    if len(lines) < 2:
+        row_body = lines[0].strip().strip("|").strip()
+        body_budget = max(1, max_tokens - 2)
+        return [
+            f"| {part} |"
+            for part in recursive_split(row_body, body_budget, 0)
+        ]
+
     separator_cells = [cell.strip() for cell in lines[1].strip().strip("|").split("|")]
     has_separator = bool(separator_cells) and all(
         re.fullmatch(r":?-{3,}:?", cell) for cell in separator_cells

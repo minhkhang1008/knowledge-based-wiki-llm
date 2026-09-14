@@ -6,6 +6,21 @@ from types import SimpleNamespace
 from app.services import article_lifecycle_service as lifecycle
 
 
+def test_remove_extracted_assets_is_scoped_to_document(tmp_path, monkeypatch) -> None:
+    document_id = "b" * 64
+    document_dir = tmp_path / document_id
+    document_dir.mkdir()
+    (document_dir / "page.png").write_bytes(b"asset")
+    sibling = tmp_path / "keep.txt"
+    sibling.write_text("keep", encoding="utf-8")
+    monkeypatch.setenv("EXTRACTED_DATA_DIR", str(tmp_path))
+
+    lifecycle._remove_extracted_assets(document_id)
+
+    assert not document_dir.exists()
+    assert sibling.read_text(encoding="utf-8") == "keep"
+
+
 def test_create_article_is_removed_when_indexing_fails(monkeypatch) -> None:
     article = SimpleNamespace(id="article-1")
     deleted: list[str] = []

@@ -1,7 +1,8 @@
-# Knowledge Wiki — Frontend
+# Knowledge Wiki Frontend
 
-Next.js 14 (App Router) frontend for the Knowledge Based Wiki LLM API.
-This drop implements the **Dashboard** screen from `docs/frontend-integration.md`.
+Next.js 16 App Router frontend for the Knowledge Based Wiki LLM API. It
+implements the dashboard, document ingestion and management, semantic search,
+and cited Q&A screens.
 
 ## Run
 
@@ -31,14 +32,14 @@ src/
     dashboard/    StatsGrid, StatCard, QuickLinks, RecentArticles
     layout/       AppShell, Sidebar, ConnectionBadge, ThemeToggle
     theme/        ThemeProvider (light/dark, persisted)
-    ui/           Button, Skeleton, ErrorState, Icons
+    ui/           Button, Skeleton, ErrorState, Icons, accessible Modal
   lib/
-    api/          client, errors, stats, health, articles
+    api/          client, errors, stats, health, articles, search, qa
     hooks/        useAsyncResource, useHealthPing
   types/api.ts    response contracts
 ```
 
-## Dashboard contract notes
+## Runtime contract notes
 
 - Metrics come from `GET /api/stats`: `total_articles`,
   `total_indexed_chunks`, `total_qa_logs`. No fallback numbers are ever
@@ -51,8 +52,8 @@ src/
   `AI_INVALID_RESPONSE` so AI availability reads differently from an API outage.
 - API origin is environment-only (`NEXT_PUBLIC_API_BASE_URL`).
 - Requests are aborted on unmount via `AbortController`.
-
-## Not in this drop
-
-`/documents`, `/search`, and `/ask` are placeholders so Dashboard navigation
-resolves. Build them on the same `src/lib/api` layer.
+- Document uploads use the server-provided format and size limits and display
+  the actual `chunk_count` returned by ingestion.
+- Extracted Markdown images are loaded through the document-scoped asset API.
+- Document lists are paginated; search and Q&A distinguish empty context from
+  transport or AI errors.

@@ -4,8 +4,10 @@ import asyncio
 from collections.abc import Mapping
 import hashlib
 import json
+import logging
 import os
 from pathlib import Path
+import shutil
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,6 +33,14 @@ CHROMA_UPSERT_BATCH_SIZE = max(
     1,
     int(os.getenv("CHROMA_UPSERT_BATCH_SIZE", "64")),
 )
+logger = logging.getLogger(__name__)
+
+
+def _remove_extracted_assets(document_id: str) -> None:
+    root = Path(os.getenv("EXTRACTED_DATA_DIR", "storage/extracted_data")).resolve()
+    document_dir = (root / document_id).resolve()
+    if document_dir != root and root in document_dir.parents and document_dir.is_dir():
+        shutil.rmtree(document_dir)
 
 
 def _chunk_article(article: Any) -> list[dict]:
@@ -332,6 +342,18 @@ async def delete_article_lifecycle(
         raise
     if not deleted:
         await asyncio.to_thread(restore_article_chunks, article_id, snapshot)
+    else:
+        try:
+            await asyncio.to_thread(
+                _remove_extracted_assets,
+                str(article.document_id),
+            )
+        except OSError:
+            logger.warning(
+                "Could not remove extracted assets for document %s",
+                article.document_id,
+                exc_info=True,
+            )
     return deleted
 
 

@@ -4,24 +4,23 @@ A local-first knowledge base that converts office documents to Markdown, chunks 
 
 ## Current status
 
-The backend supports:
+The completed product includes:
 
 - Article lifecycle in SQLite with ChromaDB synchronization.
 - Semantic search with a calibrated distance threshold.
 - RAG answers with required source citations and no-context handling.
-- Document conversion and format-aware chunking for DOCX, XLSX, XLSM, and PPTX.
+- Document conversion and format-aware chunking for PDF, images, DOCX, XLSX,
+  XLSM, and PPTX, including OCR metadata and extracted-image assets.
 - One upload-to-index ingest endpoint with compensating rollback.
 - Retrieval evaluation, index-integrity checks, and API tests.
-
-PDF and image converters exist, but their chunkers are still pending. They are intentionally not advertised by the ingest API until both conversion and chunking are ready.
-
-Frontend implementation is not part of the repository yet. See [Frontend requirements and integration guide](docs/frontend-integration.md).
+- A responsive Next.js UI for dashboard metrics, document management,
+  semantic search, and cited question answering.
 
 ## Quick start
 
 Requirements:
 
-- Python 3.11
+- Python 3.11 and Node.js 20.9 or newer
 - Ollama
 - `nomic-embed-text`
 - `llama3.2`
@@ -29,19 +28,31 @@ Requirements:
 ```bash
 ollama pull nomic-embed-text
 ollama pull llama3.2
-python -m venv .venv
-source .venv/bin/activate
+python -m venv venv
+source venv/bin/activate
 pip install -r api/requirements-dev.txt
 cp api/.env.example api/.env
 cd api
 uvicorn app.main:app --reload
 ```
 
-Open `http://localhost:8000/docs` for the interactive API documentation.
+In a second terminal:
+
+```bash
+cd frontend
+cp .env.example .env.local
+npm ci
+npm run dev
+```
+
+Open `http://localhost:3000` for the product UI or
+`http://localhost:8000/docs` for interactive API documentation.
 
 ## Docker Compose
 
-The root Compose stack starts Ollama, downloads the configured embedding and chat models, starts the API, and persists both model and knowledge-base data:
+The root Compose stack starts Ollama, downloads the configured embedding and
+chat models, then starts the API and frontend. Model and knowledge-base data
+are persisted in named volumes:
 
 ```bash
 cp .env.example .env
@@ -52,6 +63,7 @@ The first start takes longer because Ollama downloads both models. Verify readin
 
 ```bash
 curl http://localhost:8000/health
+curl --fail http://localhost:3000
 ```
 
 ## Run tests
@@ -59,6 +71,12 @@ curl http://localhost:8000/health
 ```bash
 cd api
 python -m pytest -q
+
+cd ../frontend
+npm run lint
+npm run typecheck
+npm run build
+npm audit --audit-level=high
 ```
 
 The real retrieval baseline requires the configured Ollama models:
@@ -80,6 +98,7 @@ See [Retrieval baseline](docs/retrieval-baseline.md) for the recorded results an
 | Health | `GET /health` |
 | Ready ingest formats | `GET /api/v1/articles/supported-formats` |
 | Upload and ingest | `POST /api/v1/articles/upload` |
+| Extracted document image | `GET /api/v1/articles/{document_id}/assets/{asset_path}` |
 | Articles | `GET/POST /api/articles` |
 | Article detail | `GET/PUT/DELETE /api/articles/{article_id}` |
 | Semantic search | `POST /api/search` |

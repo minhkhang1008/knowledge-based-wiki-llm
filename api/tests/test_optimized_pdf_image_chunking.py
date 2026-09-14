@@ -7,9 +7,21 @@ from app.services.document_parser.pdf_converter import (
     BoundingBox,
     DocumentBlock,
     MarkdownCompiler,
+    MuPDFTextExtractor,
     RepeatedMarginFilter,
 )
+from app.services.document_parser.image_extractor import PptxImageExtractor
+from pptx.enum.shapes import MSO_SHAPE_TYPE
 from app.services.ocr.ocr_utils import _group_words_into_regions
+from app.services.ocr.factory import OCRFactory
+from app.services.ocr.tesseract_engine import TesseractEngine
+
+
+def test_tesseract_is_the_default_ocr_engine(monkeypatch) -> None:
+    monkeypatch.delenv("OCR_ENGINE_TYPE", raising=False)
+    monkeypatch.setattr(OCRFactory, "_instance", None)
+
+    assert isinstance(OCRFactory.get_engine(), TesseractEngine)
 
 
 def test_image_chunker_keeps_ocr_metadata_and_skips_filename_only() -> None:
@@ -81,6 +93,72 @@ def test_single_oversized_pdf_table_row_stays_within_chunk_limit() -> None:
         approximate_token_count(chunk["content"]) <= 40
         for chunk in chunks
     )
+
+
+def test_single_ocr_pipe_line_falls_back_without_crashing() -> None:
+    markdown = "<!-- page: 1 -->\n| " + "word " * 200 + "|"
+
+    chunks = chunk_from_markdown(
+        markdown,
+        "ocr-table.pdf",
+        ".pdf",
+        ChunkConfig(chunk_size=40, overlap=5),
+    )
+
+    assert len(chunks) > 1
+    assert all(
+        approximate_token_count(chunk["content"]) <= 40
+        for chunk in chunks
+    )
+
+
+def test_mupdf_body_font_is_weighted_by_visible_text_length() -> None:
+    class FakePage:
+        def get_text(self, _kind: str) -> dict:
+            return {
+                "blocks": [
+                    {
+                        "type": 0,
+                        "lines": [
+                            {"spans": [{"size": 20, "text": "Title"}]},
+                            {
+                                "spans": [
+                                    {
+                                        "size": 11,
+                                        "text": "This is the much longer paragraph body text.",
+                                    }
+                                ]
+                            },
+                        ],
+                    }
+                ]
+            }
+
+    stats = MuPDFTextExtractor.compute_font_stats_from_doc([FakePage()])
+
+    assert stats == {"most_used": 11.0, "max": 20.0}
+
+
+def test_pptx_extracted_image_path_is_relative_to_document_assets(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    class FakeImage:
+        ext = "png"
+        blob = b"fake-png"
+
+    class FakeShape:
+        shape_type = MSO_SHAPE_TYPE.PICTURE
+        image = FakeImage()
+        description = "Diagram"
+        name = "Picture"
+
+    monkeypatch.setattr(PptxImageExtractor, "_run_ocr", lambda _: "")
+
+    markdown = PptxImageExtractor.extract(FakeShape(), str(tmp_path), 2, 3)
+
+    assert markdown == "![Diagram](slide_2_shape_3.png)\n\n"
+    assert (tmp_path / "slide_2_shape_3.png").read_bytes() == b"fake-png"
 
 
 def test_pdf_heading_path_is_repeated_on_long_chunks() -> None:

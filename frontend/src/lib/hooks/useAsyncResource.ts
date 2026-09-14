@@ -30,7 +30,10 @@ export function useAsyncResource<T>(
 
   const hasDataRef = useRef(false);
   const loaderRef = useRef(loader);
-  loaderRef.current = loader;
+
+  useEffect(() => {
+    loaderRef.current = loader;
+  }, [loader]);
 
   const reload = useCallback(() => setNonce((value) => value + 1), []);
 

@@ -1,331 +1,262 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
-import { Send, User, Bot, AlertCircle, FileText } from "lucide-react";
+import {
+  Fragment,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
+import { askQuestion } from "@/lib/api/qa";
+import { errorMessage } from "@/lib/api/errors";
+import type { SourceChunk } from "@/types/api";
+import {
+  AlertIcon,
+  BotIcon,
+  DocumentsIcon,
+  SendIcon,
+  UserIcon,
+} from "@/components/ui/Icons";
 
-// --- Types ---
-type Source = {
-  text: string;
-  article_id: string;
-  source_file: string;
-  page_number: number | null;
-  distance: number;
-};
-
-type Message = {
+interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
-  sources?: Source[];
+  sources?: SourceChunk[];
   noContext?: boolean;
-};
+}
 
 const MIN_QUESTION_LENGTH = 5;
+const MAX_LOCAL_MESSAGES = 50;
+const HISTORY_MESSAGES = 12;
 
-// --- Helper Functions ---
-// Parses [S1], [S2] into stylized citation badges
-const renderTextWithCitations = (text: string) => {
-  const parts = text.split(/(\[S\d+\])/g);
+function CitedAnswer({ text, messageId }: { text: string; messageId: string }) {
+  const parts = text.split(/(\[S\d+])/g);
   return parts.map((part, index) => {
-    if (part.match(/\[S\d+\]/)) {
-      return (
-        <span
-          key={index}
-          className="inline-flex items-center justify-center px-1.5 py-0.5 mx-0.5 text-xs font-semibold text-blue-300 bg-blue-500/20 border border-blue-500/30 rounded cursor-help"
-          title="See source below"
-        >
-          {part}
-        </span>
-      );
-    }
-    return <React.Fragment key={index}>{part}</React.Fragment>;
+    const match = part.match(/^\[S(\d+)]$/);
+    if (!match) return <Fragment key={`${part}-${index}`}>{part}</Fragment>;
+    const sourceIndex = Number(match[1]) - 1;
+    return (
+      <button
+        key={`${part}-${index}`}
+        type="button"
+        className="mx-0.5 inline-flex rounded-md border border-line bg-hover px-1.5 py-0.5 font-mono text-xs font-semibold text-ink hover:bg-elevated"
+        aria-label={`Jump to source ${sourceIndex + 1}`}
+        onClick={() =>
+          document
+            .getElementById(`source-${messageId}-${sourceIndex}`)
+            ?.scrollIntoView({ behavior: "smooth", block: "center" })
+        }
+      >
+        {part}
+      </button>
+    );
   });
-};
+}
 
 export default function AskPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
+  const [error, setError] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+  const requestRef = useRef<AbortController | null>(null);
+  const messageSequence = useRef(0);
 
   const trimmedLength = inputValue.trim().length;
   const isTooShort = trimmedLength > 0 && trimmedLength < MIN_QUESTION_LENGTH;
 
-  // Auto-scroll to bottom when messages change
+  useEffect(() => () => requestRef.current?.abort(), []);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isLoading]);
 
-  // Auto-resize textarea
   useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
-    }
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
   }, [inputValue]);
 
-  const handleSubmit = async (e?: React.FormEvent) => {
-    e?.preventDefault();
-    setError(null);
-    const trimmedInput = inputValue.trim();
+  function nextMessageId(role: Message["role"]) {
+    messageSequence.current += 1;
+    return `${role}-${messageSequence.current}`;
+  }
 
-    // Minimum five-character question requirement
-    if (trimmedInput.length < MIN_QUESTION_LENGTH) {
-      setError(`Please enter a question with at least ${MIN_QUESTION_LENGTH} characters.`);
+  async function handleSubmit(event?: FormEvent) {
+    event?.preventDefault();
+    const question = inputValue.trim();
+    setError("");
+    if (question.length < MIN_QUESTION_LENGTH) {
+      setError(`Enter at least ${MIN_QUESTION_LENGTH} characters.`);
       return;
     }
 
-    const newUserMessage: Message = {
-      id: Date.now().toString(),
+    const userMessage: Message = {
+      id: nextMessageId("user"),
       role: "user",
-      content: trimmedInput,
+      content: question,
     };
-
-    // Prepare API history format
-    const chatHistory = messages.map((m) => ({
-      role: m.role,
-      content: m.content,
+    const history = messages.slice(-HISTORY_MESSAGES).map((message) => ({
+      role: message.role,
+      content: message.content,
     }));
+    const controller = new AbortController();
+    requestRef.current?.abort();
+    requestRef.current = controller;
 
-    setMessages((prev) => [...prev, newUserMessage]);
+    setMessages((current) => [...current, userMessage].slice(-MAX_LOCAL_MESSAGES));
     setInputValue("");
     setIsLoading(true);
-
     try {
-      const response = await fetch(`${API_URL}/api/qa/ask`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          question: trimmedInput,
-          chat_history: chatHistory,
-        }),
-      });
-
-      if (!response.ok) {
-        // Distinguish server-side errors (e.g. 4xx/5xx) from network failures
-        throw new Error(`server_status_${response.status}`);
-      }
-
-      const json = await response.json();
-
-      // Handle potential API envelope `{"success": true, "data": {...}}`
-      // or direct response fallback
-      const payload = json.data ? json.data : json;
-      const { answer, sources, no_answer_reason } = payload;
-
-      const newAssistantMessage: Message = {
-        id: (Date.now() + 1).toString(),
+      const result = await askQuestion(question, history, controller.signal);
+      const assistantMessage: Message = {
+        id: nextMessageId("assistant"),
         role: "assistant",
-        content: answer,
-        sources: sources || [],
-        noContext: no_answer_reason === "insufficient_context",
+        content: result.answer,
+        sources: result.sources,
+        noContext: result.no_answer_reason === "insufficient_context",
       };
-
-      setMessages((prev) => [...prev, newAssistantMessage]);
-    } catch (err) {
-      // Restore user input on failure so it can be retried
-      setInputValue(trimmedInput);
-      setMessages((prev) => prev.filter((m) => m.id !== newUserMessage.id));
-
-      const message = err instanceof Error ? err.message : "";
-      if (message.startsWith("server_status_")) {
-        const status = message.replace("server_status_", "");
-        setError(`Server error (${status}). Your question has been kept so you can retry.`);
-      } else {
-        setError("Failed to connect to the server. Your question has been kept so you can retry.");
-      }
+      setMessages((current) => [...current, assistantMessage].slice(-MAX_LOCAL_MESSAGES));
+    } catch (cause) {
+      if (controller.signal.aborted) return;
+      setInputValue(question);
+      setMessages((current) => current.filter((message) => message.id !== userMessage.id));
+      setError(`${errorMessage(cause)} Your question was restored so you can retry.`);
     } finally {
-      setIsLoading(false);
+      if (requestRef.current === controller) setIsLoading(false);
     }
-  };
+  }
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    // Ignore Enter while an IME composition is in progress (e.g. some
-    // Vietnamese/CJK input methods), so it doesn't submit mid-composition.
-    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-      e.preventDefault();
-      if (!isLoading) handleSubmit();
+  function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+      event.preventDefault();
+      if (!isLoading) void handleSubmit();
     }
-  };
+  }
 
   return (
-    <div className="flex flex-col h-screen bg-black text-white">
-      {/* Header */}
-      <header className="flex items-center justify-between p-4 bg-black border-b border-white/10">
-        <h1 className="text-xl font-semibold text-white">Knowledge Base QA</h1>
+    <div className="mx-auto flex min-h-[calc(100dvh-3.5rem)] w-full max-w-5xl flex-col px-4 py-6 sm:px-6 lg:py-8">
+      <header className="border-b border-line pb-5">
+        <h1 className="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">Ask</h1>
+        <p className="mt-1.5 max-w-2xl text-sm leading-6 text-muted">
+          Ask a grounded question. Answers without valid source citations are rejected automatically.
+        </p>
       </header>
 
-      {/* Chat Messages Area */}
-      <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
-        {messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-center space-y-4">
-            <Bot size={48} className="text-white/70" />
-            <p className="text-lg font-medium text-white">How can I help you today?</p>
-            <p className="text-sm max-w-md text-white/60">
-              Ask questions about your uploaded documents. I will provide answers with exact citations and source references.
-            </p>
-          </div>
-        ) : (
-          messages.map((message) => (
-            <div
-              key={message.id}
-              className={`flex gap-4 max-w-4xl mx-auto ${
-                message.role === "user" ? "justify-end" : "justify-start"
-              }`}
-            >
-              {/* Assistant Avatar */}
-              {message.role === "assistant" && (
-                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-white/10 border border-white/20 flex items-center justify-center text-white">
-                  <Bot size={18} />
-                </div>
-              )}
-
-              {/* Message Content */}
-              <div
-                className={`flex flex-col space-y-2 max-w-[85%] sm:max-w-[75%] ${
-                  message.role === "user" ? "items-end" : "items-start"
-                }`}
-              >
-                <div
-                  className={`px-4 py-3 rounded-2xl border ${
-                    message.role === "user"
-                      ? "bg-white text-black border-white rounded-br-none"
-                      : "bg-white/5 text-white border-white/10 rounded-bl-none"
-                  }`}
-                >
-                  {/* Context Missing Warning */}
-                  {message.noContext && (
-                    <div className="flex items-center gap-2 mb-2 text-amber-300 font-medium text-sm bg-amber-500/10 border border-amber-500/20 p-2 rounded">
-                      <AlertCircle size={16} />
-                      Insufficient Context
-                    </div>
-                  )}
-
-                  <div className="whitespace-pre-wrap leading-relaxed">
-                    {message.role === "assistant"
-                      ? renderTextWithCitations(message.content)
-                      : message.content}
+      <section className="flex min-h-0 flex-1 flex-col" aria-label="Knowledge base conversation">
+        <div className="flex-1 space-y-6 overflow-y-auto py-6" aria-live="polite" aria-busy={isLoading}>
+          {messages.length === 0 ? (
+            <div className="flex min-h-80 flex-col items-center justify-center rounded-xl border border-dashed border-line px-6 text-center">
+              <BotIcon className="h-10 w-10 text-faint" aria-hidden="true" />
+              <h2 className="mt-4 text-base font-semibold text-ink">Ask your documents</h2>
+              <p className="mt-1 max-w-md text-sm leading-6 text-muted">
+                Questions work best when they name the topic, policy, product, or procedure you need.
+              </p>
+            </div>
+          ) : (
+            messages.map((message) => (
+              <article key={message.id} className={`flex gap-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}>
+                {message.role === "assistant" ? (
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line bg-surface text-muted">
+                    <BotIcon className="h-4 w-4" aria-hidden="true" />
                   </div>
-                </div>
+                ) : null}
+                <div className={`min-w-0 max-w-[88%] sm:max-w-[78%] ${message.role === "user" ? "text-right" : "text-left"}`}>
+                  <div className={`inline-block rounded-xl border px-4 py-3 text-left text-sm leading-6 ${message.role === "user" ? "border-ink bg-ink text-canvas" : "border-line bg-surface text-ink"}`}>
+                    {message.noContext ? (
+                      <div className="mb-2 flex items-center gap-2 text-sm font-medium text-warning">
+                        <AlertIcon className="h-4 w-4" aria-hidden="true" />
+                        No relevant context found
+                      </div>
+                    ) : null}
+                    <div className="whitespace-pre-wrap">
+                      {message.role === "assistant" ? <CitedAnswer text={message.content} messageId={message.id} /> : message.content}
+                    </div>
+                  </div>
 
-                {/* Sources List */}
-                {message.sources && message.sources.length > 0 && (
-                  <div className="w-full mt-2 space-y-2">
-                    <p className="text-xs font-semibold text-white/50 uppercase tracking-wider ml-1">
-                      Sources
-                    </p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {message.sources.map((source, idx) => (
-                        <div
-                          key={idx}
-                          className="flex flex-col p-3 bg-white/5 border border-white/10 rounded-lg text-sm"
-                        >
-                          <div className="flex items-start gap-2 mb-1.5 font-medium text-white/80">
-                            <span className="flex-shrink-0 bg-blue-500/20 text-blue-300 border border-blue-500/30 px-1.5 py-0.5 rounded text-xs">
-                              S{idx + 1}
-                            </span>
-                            <span className="flex items-center gap-1 truncate text-xs text-white/70">
-                              <FileText size={14} className="flex-shrink-0" />
-                              {source.source_file}
-                              {source.page_number && ` (p. ${source.page_number})`}
-                            </span>
+                  {message.sources && message.sources.length > 0 ? (
+                    <ol className="mt-3 grid gap-2 text-left sm:grid-cols-2">
+                      {message.sources.map((source, index) => (
+                        <li id={`source-${message.id}-${index}`} key={`${source.article_id ?? "unknown"}-${index}`} className="rounded-lg border border-line bg-elevated p-3 text-xs">
+                          <div className="flex items-center gap-2 font-medium text-ink">
+                            <span className="font-mono">S{index + 1}</span>
+                            <DocumentsIcon className="h-3.5 w-3.5 text-muted" aria-hidden="true" />
+                            <span className="truncate">{source.source_file ?? "Unknown source"}</span>
+                            {source.page_number !== null ? <span className="ml-auto shrink-0 text-muted">p. {source.page_number}</span> : null}
                           </div>
-                          <p className="text-white/50 line-clamp-3 text-xs italic border-l-2 border-white/20 pl-2">
-                            &quot;{source.text}&quot;
-                          </p>
-                        </div>
+                          <p className="mt-2 line-clamp-4 border-l-2 border-line pl-2 leading-5 text-muted">{source.text}</p>
+                        </li>
                       ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* User Avatar */}
-              {message.role === "user" && (
-                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-white/10 border border-white/20 flex items-center justify-center text-white">
-                  <User size={18} />
+                    </ol>
+                  ) : null}
                 </div>
-              )}
-            </div>
-          ))
-        )}
+                {message.role === "user" ? (
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line bg-surface text-muted">
+                    <UserIcon className="h-4 w-4" aria-hidden="true" />
+                  </div>
+                ) : null}
+              </article>
+            ))
+          )}
 
-        {/* Loading Indicator */}
-        {isLoading && (
-          <div className="flex gap-4 max-w-4xl mx-auto">
-            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-white/10 border border-white/20 flex items-center justify-center text-white">
-              <Bot size={18} />
+          {isLoading ? (
+            <div className="flex gap-3">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line bg-surface text-muted">
+                <BotIcon className="h-4 w-4" aria-hidden="true" />
+              </div>
+              <div className="w-48 space-y-2 rounded-xl border border-line bg-surface p-4" aria-label="Generating answer">
+                <div className="h-2.5 animate-pulse rounded bg-hover" />
+                <div className="h-2.5 w-2/3 animate-pulse rounded bg-hover" />
+              </div>
             </div>
-            <div className="bg-white/5 border border-white/10 px-4 py-3 rounded-2xl rounded-bl-none flex items-center gap-2">
-              <div className="w-2 h-2 bg-white/60 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
-              <div className="w-2 h-2 bg-white/60 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
-              <div className="w-2 h-2 bg-white/60 rounded-full animate-bounce"></div>
-            </div>
-          </div>
-        )}
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* Error Banner */}
-      {error && (
-        <div className="max-w-4xl mx-auto w-full px-4 sm:px-6">
-          <div className="flex items-center gap-2 mb-2 px-3 py-2 bg-red-500/10 border border-red-500/30 text-red-300 text-sm rounded-lg">
-            <AlertCircle size={16} className="flex-shrink-0" />
-            {error}
-          </div>
+          ) : null}
+          <div ref={messagesEndRef} />
         </div>
-      )}
 
-      {/* Input Area */}
-      <div className="p-4 bg-black border-t border-white/10">
-        <form
-          onSubmit={handleSubmit}
-          className="max-w-4xl mx-auto flex items-end gap-2"
-        >
-          <div className="flex-1 flex flex-col gap-1">
-            <textarea
-              ref={textareaRef}
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onKeyDown={handleKeyDown}
-              disabled={isLoading}
-              rows={1}
-              placeholder="Ask a question about your documents..."
-              className={`w-full resize-none rounded-xl border bg-white/5 text-white placeholder-white/40 px-4 py-3 text-sm focus:outline-none focus:ring-2 disabled:opacity-60 disabled:cursor-not-allowed max-h-[200px] ${
-                isTooShort
-                  ? "border-amber-500/50 focus:ring-amber-500/50"
-                  : "border-white/15 focus:ring-white/30"
-              }`}
-            />
-            {/* Minimum length hint */}
-            <div className="flex items-center justify-between px-1">
-              <span className={`text-xs ${isTooShort ? "text-amber-300" : "text-white/40"}`}>
-                Minimum {MIN_QUESTION_LENGTH} characters
-              </span>
-              {trimmedLength > 0 && (
-                <span className={`text-xs ${isTooShort ? "text-amber-300" : "text-white/40"}`}>
-                  {trimmedLength}/{MIN_QUESTION_LENGTH}
-                </span>
-              )}
+        <div className="sticky bottom-0 border-t border-line bg-canvas py-4">
+          {error ? (
+            <p id="ask-error" role="alert" className="mb-3 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">
+              {error}
+            </p>
+          ) : null}
+          <form onSubmit={handleSubmit} className="flex items-end gap-2">
+            <div className="min-w-0 flex-1">
+              <label htmlFor="question" className="mb-1.5 block text-sm font-medium text-ink">Question</label>
+              <textarea
+                id="question"
+                ref={textareaRef}
+                value={inputValue}
+                onChange={(event) => {
+                  setInputValue(event.target.value);
+                  setError("");
+                }}
+                onKeyDown={handleKeyDown}
+                disabled={isLoading}
+                rows={1}
+                placeholder="Ask about an indexed document"
+                aria-describedby={error ? "ask-error question-help" : "question-help"}
+                className={`max-h-[200px] w-full resize-none rounded-xl border bg-surface px-4 py-3 text-sm text-ink placeholder:text-faint disabled:cursor-not-allowed disabled:opacity-60 ${isTooShort ? "border-warning" : "border-line"}`}
+              />
+              <div id="question-help" className="mt-1 flex justify-between px-1 text-xs text-muted">
+                <span>Enter to send, Shift+Enter for a new line</span>
+                <span>{trimmedLength}/{MIN_QUESTION_LENGTH} min</span>
+              </div>
             </div>
-          </div>
-          <button
-            type="submit"
-            disabled={isLoading || trimmedLength === 0}
-            className="flex-shrink-0 w-11 h-11 rounded-xl bg-white text-black flex items-center justify-center hover:bg-white/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            aria-label="Send question"
-          >
-            <Send size={18} />
-          </button>
-        </form>
-      </div>
+            <button
+              type="submit"
+              disabled={isLoading || trimmedLength < MIN_QUESTION_LENGTH}
+              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-ink text-canvas transition-opacity hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label="Send question"
+            >
+              <SendIcon className="h-4 w-4" aria-hidden="true" />
+            </button>
+          </form>
+        </div>
+      </section>
     </div>
   );
 }

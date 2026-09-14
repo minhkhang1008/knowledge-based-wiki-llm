@@ -11,11 +11,6 @@ from concurrent.futures import ThreadPoolExecutor
 from PIL import Image
 from app.services.document_parser.converter_registry import register
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[logging.StreamHandler()]
-)
 logger = logging.getLogger("pdf_converter")
 
 class BlockType(Enum):
@@ -131,7 +126,14 @@ class MuPDFTextExtractor:
                     for span in line.get("spans", []):
                         size = float(span.get("size", 0))
                         if size > 0:
-                            size_counter[round(size * 2) / 2] += 1
+                            # Weight font sizes by visible characters, not span
+                            # count. A short title and a long body paragraph are
+                            # often one span each, which otherwise makes the
+                            # first title win an arbitrary tie as the body font.
+                            visible_length = len(span.get("text", "").strip())
+                            size_counter[round(size * 2) / 2] += max(
+                                1, visible_length
+                            )
                             if size > max_size:
                                 max_size = size
         most_used = size_counter.most_common(1)[0][0] if size_counter else 10.0

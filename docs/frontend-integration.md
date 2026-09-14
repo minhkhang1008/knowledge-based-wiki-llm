@@ -1,6 +1,7 @@
 # Frontend requirements and integration guide
 
-This document is the implementation contract for the first product UI. The frontend is not included in this repository yet.
+This document records the implemented contract for the product UI in
+`frontend/`.
 
 ## 1. Product scope
 
@@ -109,7 +110,7 @@ Example:
 {
   "success": true,
   "data": {
-    "extensions": [".docx", ".pptx", ".xlsm", ".xlsx"],
+    "extensions": [".bmp", ".docx", ".gif", ".jpeg", ".jpg", ".pdf", ".png", ".pptx", ".tif", ".tiff", ".webp", ".xlsm", ".xlsx"],
     "max_upload_size_mb": 25
   },
   "message": "Lấy định dạng ingest thành công",
@@ -117,7 +118,8 @@ Example:
 }
 ```
 
-PDF and image extensions will appear automatically after their chunkers are registered. The frontend must update its `accept` attribute and helper text from this response.
+The frontend updates its `accept` attribute and helper text from this response,
+so later converter registrations require no UI change.
 
 ### Upload and ingest
 

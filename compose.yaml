@@ -47,6 +47,8 @@ services:
       RAG_DISTANCE_THRESHOLD: ${RAG_DISTANCE_THRESHOLD:-0.68}
       MAX_UPLOAD_SIZE_MB: ${MAX_UPLOAD_SIZE_MB:-25}
       ENABLE_LEGACY_OFFICE_FORMATS: "false"
+      OCR_ENGINE_TYPE: ${OCR_ENGINE_TYPE:-tesseract}
+      TESSERACT_LANG: ${TESSERACT_LANG:-eng+vie}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost:3000}
     volumes:
       - knowledge-data:/data
@@ -58,6 +60,24 @@ services:
           "-c",
           "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')",
         ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000"]
       interval: 10s
       timeout: 5s
       retries: 12

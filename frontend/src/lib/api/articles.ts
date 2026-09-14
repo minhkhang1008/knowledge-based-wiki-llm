@@ -1,4 +1,8 @@
-import type { Article, SupportedFormatsData } from "@/types/api";
+import type {
+  Article,
+  IngestionData,
+  SupportedFormatsData,
+} from "@/types/api";
 import { requestEnvelope } from "./client";
 
 /** GET /api/v1/articles/supported-formats */
@@ -38,15 +42,13 @@ export function listArticles(
 export function uploadArticle(
   formData: FormData,
   signal?: AbortSignal,
-): Promise<{ id: string; chunks_created: number; message: string }> {
-  return requestEnvelope<{ id: string; chunks_created: number; message: string }>(
-    "/api/v1/articles/upload",
-    {
-      method: "POST",
-      formData,
-      signal,
-    }
-  );
+): Promise<IngestionData> {
+  return requestEnvelope<IngestionData>("/api/v1/articles/upload", {
+    method: "POST",
+    formData,
+    signal,
+    timeoutMs: 120_000,
+  });
 }
 
 /** GET /api/articles/{article_id} */
