@@ -40,6 +40,10 @@ def _raise_embedding_response_error(exc: ollama.ResponseError) -> None:
             f"Model '{OLLAMA_EMBED_MODEL}' không tồn tại. "
             f"Vui lòng chạy: ollama pull {OLLAMA_EMBED_MODEL}"
         ) from exc
+    if exc.status_code == 500:
+        raise InvalidResponseError(
+            "Ollama báo lỗi nội bộ (500). Máy có thể thiếu RAM hoặc chunk quá dài."
+        ) from exc
     raise InvalidResponseError("Response không hợp lệ") from exc
 
 
